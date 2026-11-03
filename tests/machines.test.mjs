@@ -19,6 +19,11 @@ const force = (f, type, x, y, dir = 0, opt = {}) => {
   f._touch(x, y);
   return b;
 };
+// Питание для станка в (x, y): столб рядом и солнечные панели (по 6 ед.).
+const power = (f, x, y, solars = 2) => {
+  force(f, BT.POLE, x, y + 2);
+  for (let i = 0; i < solars; i++) force(f, BT.SOLAR, x - 1 + i, y + 3);
+};
 const ok = (f, msg = "") => {
   const a = f.audit();
   assert.ok(a.ok, `учёт предметов ${msg}: ${a.bad.join(", ")}`);
@@ -161,6 +166,7 @@ const ok = (f, msg = "") => {
     const r = RECIPES[name];
     force(f, BT.CONSTRUCTOR, 0, 0, 0, { recipe: name });
     force(f, BT.STORAGE, 1, 0);
+    power(f, 0, 0);
     const wrong = r.in === "iron_ingot" ? "copper_ingot" : "iron_ingot";
     assert.equal(f.push(wrong, 0, 0, -1, 0), false, `станок ${name} не берёт чужое`);
     assert.equal(f.push(r.in, 0, 0, 1, 0), false, "с передней стороны станок не принимает");

@@ -3,9 +3,9 @@
 // Так щипок двумя пальцами (первый палец успел коснуться карты раньше второго) ничего не строит.
 import { BT, dirIndex } from "./factory.js";
 
-export const TOOLS = ["hand", "miner", "belt", "storage", "smelter", "constructor", "splitter", "erase"];
-export const BUILD_TOOLS = ["miner", "belt", "storage", "smelter", "constructor", "splitter"];
-const TOOL_TYPE = { miner: BT.MINER, belt: BT.BELT, storage: BT.STORAGE, smelter: BT.SMELTER, constructor: BT.CONSTRUCTOR, splitter: BT.SPLITTER };
+export const BUILD_TOOLS = ["miner", "belt", "storage", "smelter", "constructor", "splitter", "pole", "powerplant", "solar"];
+export const TOOLS = ["hand", ...BUILD_TOOLS, "erase"];
+const TOOL_TYPE = { miner: BT.MINER, belt: BT.BELT, storage: BT.STORAGE, smelter: BT.SMELTER, constructor: BT.CONSTRUCTOR, splitter: BT.SPLITTER, pole: BT.POLE, powerplant: BT.POWERPLANT, solar: BT.SOLAR };
 
 export class Builder {
   constructor(factory) {

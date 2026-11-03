@@ -18,7 +18,18 @@ export const BT = {
   SMELTER: "smelter",
   CONSTRUCTOR: "constructor",
   SPLITTER: "splitter",
+  POLE: "pole",
+  POWERPLANT: "powerplant",
+  SOLAR: "solar",
 };
+// Энергия (условные «ед.»): расход станка и плавильни, выработка электростанции и солнечной панели.
+export const POWER = { constructor: 5, smelter: 4, plant: 30, solar: 6 };
+export const POLE_RADIUS = 4; // здание подключается, если столб не дальше 4 клеток (по расстоянию между клетками)
+export const POLE_LINK = 8; // столбы тянут линии друг к другу до 8 клеток (линии для вида: сеть общая на весь мир)
+export const BURN_TICKS = Math.round(10 / TICK); // один уголь горит 10 секунд полной нагрузки
+export const PLANT_COAL_CAP = 4;
+// Эти здания не поворачиваются (нет передней стороны).
+export const FIXED = new Set([BT.STORAGE, BT.SPLITTER, BT.POLE, BT.POWERPLANT, BT.SOLAR]);
 export const MACHINES = [BT.SMELTER, BT.CONSTRUCTOR];
 export const ORE_ITEM = { 1: "iron_ore", 2: "copper_ore", 3: "coal" };
 export const ITEMS = ["iron_ore", "copper_ore", "coal", "iron_ingot", "copper_ingot", "iron_plate", "gear", "copper_wire"];
@@ -34,9 +45,15 @@ export const COSTS = {
   smelter: { iron_ore: 10 },
   constructor: { iron_ingot: 10 },
   splitter: { iron_ingot: 5 },
+  pole: { iron_ingot: 1 },
+  powerplant: { iron_ingot: 20, copper_ingot: 5 },
+  solar: { iron_plate: 5, gear: 5, copper_wire: 5 },
 };
-const CODE = { belt: "b", miner: "m", storage: "s", smelter: "f", constructor: "c", splitter: "p" };
-const TYPE_OF = { b: BT.BELT, m: BT.MINER, s: BT.STORAGE, f: BT.SMELTER, c: BT.CONSTRUCTOR, p: BT.SPLITTER };
+const CODE = { belt: "b", miner: "m", storage: "s", smelter: "f", constructor: "c", splitter: "p", pole: "l", powerplant: "g", solar: "o" };
+const TYPE_OF = { b: BT.BELT, m: BT.MINER, s: BT.STORAGE, f: BT.SMELTER, c: BT.CONSTRUCTOR, p: BT.SPLITTER, l: BT.POLE, g: BT.POWERPLANT, o: BT.SOLAR };
+
+// Попадает ли здание со смещением (dx, dy) от столба в радиус подключения.
+export const inPoleRange = (dx, dy) => dx * dx + dy * dy <= POLE_RADIUS * POLE_RADIUS;
 export const SAVE_VERSION = 1;
 
 const key = (x, y) => x + "," + y;
@@ -69,6 +86,7 @@ export class Factory {
     this.sunk = {}; // сколько исчезло (сырьё в переработке, уголь в бак, оплата построек)
     this.produced = 0; // сколько руды добыто бурами
     this.lost = 0; // зарезервировано: предметы не теряются, снос возвращает всё на склад
+    this.grid = { supply: 0, demand: 0, ratio: 1, solar: 0, plants: 0 }; // энергосеть: выработка, спрос, доля обеспечения
     this.tickCount = 0;
     this.rev = 0; // растёт при любом изменении состава построек
     this.dirty = new Set(); // ключи клеток, изменённых с прошлой отрисовки
@@ -140,7 +158,7 @@ export class Factory {
   }
 
   _make(type, x, y, dir, extra) {
-    const b = { type, x, y, dir: type === BT.STORAGE || type === BT.SPLITTER ? 0 : dir };
+    const b = { type, x, y, dir: FIXED.has(type) ? 0 : dir };
     if (type === BT.BELT) b.item = null;
     if (type === BT.MINER) {
       b.ore = tileAt(x, y, this.seed).ore;
@@ -155,9 +173,12 @@ export class Factory {
       b.prog = 0;
       b.out = null;
       b.last = 0;
+      b.mode = null; // "fuel" или "power": чем сейчас греется текущий слиток
+      b.pw = false; // подключено к столбу
       b.blocked = false;
     }
     if (type === BT.CONSTRUCTOR) {
+      b.pw = false;
       b.recipe = RECIPES[extra] ? extra : "plate";
       b.have = 0;
       b.busy = false;
@@ -170,12 +191,20 @@ export class Factory {
       b.from = 0;
       b.rr = 0;
     }
+    if (type === BT.POWERPLANT) {
+      b.coal = 0;
+      b.burning = false; // уголь горит: считается внутри станции, пока не догорел
+      b.burn = 0;
+      b.frac = 0; // какую долю мощности станция выдаёт сейчас
+      b.pw = false;
+    }
+    if (type === BT.SOLAR) b.pw = false;
     return b;
   }
 
   rotateAt(x, y, dir) {
     const b = this.get(x, y);
-    if (!b || b.type === BT.STORAGE || b.type === BT.SPLITTER) return false;
+    if (!b || FIXED.has(b.type)) return false;
     this._rotate(b, dir);
     return true;
   }
@@ -217,6 +246,7 @@ export class Factory {
       if (b.out) give(b.out);
     }
     if (b.type === BT.SPLITTER && b.item) give(b.item);
+    if (b.type === BT.POWERPLANT) give("coal", b.coal + (b.burning ? 1 : 0));
   }
 
   // Снос возвращает цену и всё, что было внутри.
@@ -243,18 +273,69 @@ export class Factory {
 
   _lists() {
     if (this._listRev !== this.rev) {
-      const L = { belts: [], miners: [], smelters: [], constructors: [], splitters: [] };
+      const L = { belts: [], miners: [], smelters: [], constructors: [], splitters: [], poles: [], plants: [], solars: [] };
       for (const b of this.map.values()) {
+        if (b.pw !== undefined) b.pw = false;
         if (b.type === BT.BELT) L.belts.push(b);
         else if (b.type === BT.MINER) L.miners.push(b);
         else if (b.type === BT.SMELTER) L.smelters.push(b);
         else if (b.type === BT.CONSTRUCTOR) L.constructors.push(b);
         else if (b.type === BT.SPLITTER) L.splitters.push(b);
+        else if (b.type === BT.POLE) L.poles.push(b);
+        else if (b.type === BT.POWERPLANT) L.plants.push(b);
+        else if (b.type === BT.SOLAR) L.solars.push(b);
+      }
+      const R = POLE_RADIUS;
+      for (const p of L.poles) {
+        for (let dy = -R; dy <= R; dy++) {
+          for (let dx = -R; dx <= R; dx++) {
+            if (!inPoleRange(dx, dy)) continue;
+            const t = this.get(p.x + dx, p.y + dy);
+            if (t && t.pw !== undefined) t.pw = true;
+          }
+        }
       }
       this._lists_ = L;
       this._listRev = this.rev;
     }
     return this._lists_;
+  }
+
+  // Энергосеть: одна общая на весь мир. Выработка и спрос всех подключённых к столбам; станции жгут уголь по спросу.
+  _grid(L) {
+    let demand = 0;
+    for (const c of L.constructors) if (c.pw && (c.busy || c.have > 0)) demand += POWER.constructor;
+    for (const m of L.smelters) {
+      if (m.pw && ((m.busy && m.mode === "power") || (!m.busy && !m.out && m.in.iron_ore + m.in.copper_ore > 0))) demand += POWER.smelter;
+    }
+    let solar = 0;
+    for (const o of L.solars) if (o.pw) solar += POWER.solar;
+    const avail = [];
+    for (const p of L.plants) {
+      p.frac = 0;
+      if (p.pw && (p.coal > 0 || p.burning)) avail.push(p);
+    }
+    const cap = avail.length * POWER.plant;
+    const supply = solar + cap;
+    const ratio = demand === 0 ? 1 : Math.min(1, supply / demand);
+    const frac = cap > 0 ? Math.max(0, Math.min(demand - solar, cap)) / cap : 0; // доля мощности станций, нужная сейчас
+    for (const p of avail) {
+      p.frac = frac;
+      if (frac <= 0) continue;
+      if (!p.burning && p.coal > 0) {
+        p.coal--;
+        p.burning = true;
+        p.burn = BURN_TICKS;
+      }
+      if (p.burning) {
+        p.burn -= frac;
+        if (p.burn <= 0) {
+          p.burning = false;
+          this._add(this.sunk, "coal");
+        }
+      }
+    }
+    this.grid = { supply, demand, ratio, solar, plants: avail.length };
   }
 
   // Предмет едет из клетки (fx, fy) в клетку (tx, ty). true, если принят.
@@ -296,6 +377,12 @@ export class Factory {
         target.item = item;
         target.from = from;
         return true;
+      case BT.POWERPLANT:
+        if (item === "coal" && target.coal < PLANT_COAL_CAP) {
+          target.coal++;
+          return true;
+        }
+        return false;
       default:
         return false;
     }
@@ -311,7 +398,10 @@ export class Factory {
 
   tick() {
     this.tickCount++;
-    const { belts, miners, smelters, constructors, splitters } = this._lists();
+    const L = this._lists();
+    const { belts, miners, smelters, constructors, splitters } = L;
+    this._grid(L);
+    const ratio = this.grid.ratio;
 
     for (const m of miners) {
       const kind = ORE_ITEM[m.ore];
@@ -329,26 +419,36 @@ export class Factory {
     }
 
     for (const m of smelters) {
-      if (!m.busy && !m.out && m.fuel > 0) {
+      const power = m.pw && ratio > 0;
+      if (!m.busy && !m.out) {
         const order = m.last ? ["copper_ore", "iron_ore"] : ["iron_ore", "copper_ore"];
         for (const t of order) {
-          if (m.in[t] > 0) {
-            m.in[t]--;
-            m.busy = t;
-            m.prog = 0;
+          if (m.in[t] <= 0) continue;
+          if (power) m.mode = "power";
+          else if (m.fuel > 0) {
+            m.mode = "fuel";
             m.fuel--;
-            m.last = t === "iron_ore" ? 1 : 0;
-            break;
-          }
+          } else break; // ни сети, ни топлива
+          m.in[t]--;
+          m.busy = t;
+          m.prog = 0;
+          m.last = t === "iron_ore" ? 1 : 0;
+          break;
         }
       }
       if (m.busy) {
-        m.prog = Math.min(SMELT_TICKS, m.prog + 1);
+        if (m.mode === "power" && !power && m.fuel > 0) {
+          m.mode = "fuel"; // свет отключили: дожигаем на угле
+          m.fuel--;
+        }
+        const step = m.mode === "power" ? (power ? ratio : 0) : 1;
+        m.prog = Math.min(SMELT_TICKS, m.prog + step);
         if (m.prog >= SMELT_TICKS && !m.out) {
           m.out = SMELT[m.busy];
           this._add(this.sunk, m.busy);
           this._add(this.created, m.out);
           m.busy = null;
+          m.mode = null;
           m.prog = 0;
         }
       }
@@ -357,19 +457,21 @@ export class Factory {
 
     for (const m of constructors) {
       const r = RECIPES[m.recipe];
-      if (!m.busy && !m.out && m.have > 0) {
-        m.have--;
-        m.busy = true;
-        m.prog = 0;
-      }
-      if (m.busy) {
-        m.prog = Math.min(r.ticks, m.prog + 1);
-        if (m.prog >= r.ticks && !m.out) {
-          m.out = r.out;
-          this._add(this.sunk, r.in);
-          this._add(this.created, r.out);
-          m.busy = false;
+      if (m.pw && ratio > 0) {
+        if (!m.busy && !m.out && m.have > 0) {
+          m.have--;
+          m.busy = true;
           m.prog = 0;
+        }
+        if (m.busy) {
+          m.prog = Math.min(r.ticks, m.prog + ratio);
+          if (m.prog >= r.ticks && !m.out) {
+            m.out = r.out;
+            this._add(this.sunk, r.in);
+            this._add(this.created, r.out);
+            m.busy = false;
+            m.prog = 0;
+          }
         }
       }
       if (m.out) this._pushOut(m);
@@ -412,19 +514,24 @@ export class Factory {
 
   // Состояние здания для подсказки и лампочки: work, blocked, idle, noore, nofuel, clog, noinput.
   status(b) {
+    if ((b.type === BT.CONSTRUCTOR || b.type === BT.POWERPLANT || b.type === BT.SOLAR) && !b.pw) return "unplugged";
     switch (b.type) {
       case BT.MINER:
         return !ORE_ITEM[b.ore] ? "idle" : b.blocked ? "blocked" : "work";
       case BT.SMELTER: {
         if (b.out && b.blocked) return "blocked";
-        if (b.busy) return "work";
+        if (b.busy) return b.mode === "power" ? "power" : "work";
         if (b.in.iron_ore + b.in.copper_ore === 0) return b.fuel > FUEL_CAP - FUEL_PER_COAL ? "clog" : "noore";
         return b.fuel === 0 ? "nofuel" : "work";
       }
       case BT.CONSTRUCTOR:
         if (b.out && b.blocked) return "blocked";
+        if (this.grid.ratio <= 0 && (b.busy || b.have > 0)) return "nopower";
         if (b.busy) return "work";
         return b.have === 0 ? "noinput" : "work";
+      case BT.POWERPLANT:
+        if (b.burning) return b.frac > 0 ? "work" : "idle";
+        return b.coal > 0 ? "idle" : "nofuel";
       default:
         return "work";
     }
@@ -449,6 +556,7 @@ export class Factory {
         if (b.out) this._add(inside, b.out);
       }
       if (b.type === BT.SPLITTER && b.item) this._add(inside, b.item);
+      if (b.type === BT.POWERPLANT && b.coal + (b.burning ? 1 : 0)) this._add(inside, "coal", b.coal + (b.burning ? 1 : 0));
     }
     let ok = true;
     const bad = [];
@@ -502,4 +610,29 @@ export class Factory {
     this.rev++;
     return n;
   }
+}
+
+// Линии для картинки: столб -> подключённое здание и столб -> столб (до POLE_LINK). Сеть общая, линии только для вида.
+export function powerLinks(f) {
+  const { poles } = f._lists();
+  const toBuildings = [];
+  const toPoles = [];
+  const R = POLE_RADIUS;
+  for (const p of poles) {
+    for (let dy = -R; dy <= R; dy++) {
+      for (let dx = -R; dx <= R; dx++) {
+        if (!inPoleRange(dx, dy)) continue;
+        const t = f.get(p.x + dx, p.y + dy);
+        if (t && t.pw !== undefined) toBuildings.push([p.x, p.y, t.x, t.y]);
+      }
+    }
+  }
+  for (let i = 0; i < poles.length; i++) {
+    for (let j = i + 1; j < poles.length; j++) {
+      const dx = poles[i].x - poles[j].x;
+      const dy = poles[i].y - poles[j].y;
+      if (dx * dx + dy * dy <= POLE_LINK * POLE_LINK) toPoles.push([poles[i].x, poles[i].y, poles[j].x, poles[j].y]);
+    }
+  }
+  return { toBuildings, toPoles };
 }
