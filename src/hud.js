@@ -50,6 +50,7 @@ export function createHud({ seed, palette, onZoom, onHome, onNewMap, onTool, onR
     recipesEl.hidden = true;
     paletteEl.hidden = !paletteEl.hidden;
     q("#b-build").classList.toggle("open", !paletteEl.hidden);
+    root.classList.toggle("pal-open", !paletteEl.hidden);
   };
   for (const btn of root.querySelectorAll("button.tool[data-tool]")) btn.onclick = () => (closePalette(), onTool(btn.dataset.tool));
   const lacking = {}; // tool -> текст нехватки (пусто, если хватает)
@@ -65,6 +66,7 @@ export function createHud({ seed, palette, onZoom, onHome, onNewMap, onTool, onR
   function closePalette() {
     paletteEl.hidden = true;
     q("#b-build").classList.remove("open");
+    root.classList.remove("pal-open");
   }
   let toastTimer = 0;
   function toast(text, bad = false) {
@@ -105,6 +107,7 @@ export function createHud({ seed, palette, onZoom, onHome, onNewMap, onTool, onR
     // Панель выбора рецепта станка: list [{id, name, desc}], current id.
     showRecipes(list, current) {
       closePalette();
+      root.classList.add("pal-open"); // панель рецептов тоже занимает низ экрана: колонку масштаба прячем
       const grid = q("#recipe-grid");
       grid.innerHTML = list
         .map((r) => `<button class="pal rec${r.id === current ? " on" : ""}" data-id="${r.id}"><span class="nm">${r.name}</span><span class="cost">${r.desc}</span></button>`)
@@ -114,6 +117,7 @@ export function createHud({ seed, palette, onZoom, onHome, onNewMap, onTool, onR
     },
     hideRecipes() {
       recipesEl.hidden = true;
+      if (paletteEl.hidden) root.classList.remove("pal-open");
     },
     toast,
   };

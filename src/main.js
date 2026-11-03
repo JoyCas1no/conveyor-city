@@ -109,7 +109,7 @@ async function start() {
         const p = builder.preview(ghost.x, ghost.y);
         if (p.type === "erase") {
           if (p.ok) drawGhost(mark, ghost.x, ghost.y, false, 0, false);
-        } else drawGhost(mark, ghost.x, ghost.y, p.ok, p.dir, p.type !== BT.STORAGE);
+        } else drawGhost(mark, ghost.x, ghost.y, p.ok, p.dir, !FIXED.has(p.type));
       }
     } else if (hover) outline(hover, 0xffffff, 0.55);
     // Круг столба и подсветка зданий, которые он подключит (при выборе столба и при касании поставленного столба).
