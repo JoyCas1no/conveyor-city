@@ -89,13 +89,15 @@ function drawTile(g, t, downLeft, downRight, x, y, seed) {
   }
 
   if (t.ore) {
-    const n = 3 + Math.floor(rand2(x, y, seed + 50) * 3);
+    diamond(g, sx, top, PAL.ore[t.ore].base); // пятно руды под камнями: видно издалека
+    g.poly([sx, top, sx + HW, top + HH, sx, top + 2 * HH, sx - HW, top + HH]).fill({ color: color, alpha: 0.55 });
+    const n = 4 + Math.floor(rand2(x, y, seed + 50) * 3);
     const pts = [];
     for (let i = 0; i < n; i++) {
       pts.push(spot(sx, top, rand2(x, y, seed + 60 + i) * 2 - 1, rand2(x, y, seed + 70 + i) * 2 - 1, 0.75));
     }
     pts.sort((a, b) => a.y - b.y);
-    for (const q of pts) lump(g, q.x, q.y, 3 + rand2(q.x | 0, q.y | 0, seed + 80) * 2.5, t.ore);
+    for (const q of pts) lump(g, q.x, q.y, 4 + rand2(q.x | 0, q.y | 0, seed + 80) * 3, t.ore);
   }
 }
 
