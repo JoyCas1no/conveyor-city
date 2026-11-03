@@ -91,7 +91,9 @@ export class FactoryLayer {
   // Картинка высокого здания зависит от состояния (лампочка, свечение): перерисовываем, когда оно сменилось.
   _stateOf(b) {
     const st = this.f.status(b);
-    return b.type === BT.CONSTRUCTOR ? st + "|" + b.recipe : st;
+    if (b.type === BT.CONSTRUCTOR) return st + "|" + b.recipe;
+    if (b.type === BT.HOUSE) return st + "|" + b.pop;
+    return st;
   }
 
   _drawTall(e, b) {

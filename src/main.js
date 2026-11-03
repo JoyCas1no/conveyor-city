@@ -8,6 +8,7 @@ import { HH, HW, pickTileRaised, tileToScreen } from "./iso.js";
 import { tileAt } from "./worldgen.js";
 import { Factory, BT, TICK, COSTS, FUEL_CAP, RECIPE_ORDER, FIXED, POLE_RADIUS, inPoleRange } from "./factory.js";
 import { Builder, BUILD_TOOLS } from "./builder.js";
+import { UNLOCK_AT } from "./contracts.js";
 import { drawGhost, drawRing, drawTileOutline } from "./buildingdraw.js";
 import { readSave, writeSave, readLastSeed, writeLastSeed, sanitizeCam } from "./save.js";
 import { PAL } from "./palette.js";
@@ -33,16 +34,39 @@ function poleTargets(x, y) {
   return out;
 }
 
+// Вкладки палитры.
+const TAB = {
+  miner: "mining", sawmill: "mining", pump: "mining",
+  belt: "factory", storage: "factory", splitter: "factory", smelter: "factory", constructor: "factory",
+  pole: "power", powerplant: "power", solar: "power",
+  house: "city", shop: "city", park: "city",
+};
+const TABS = ["mining", "factory", "power", "city"].map((id) => ({ id, name: STR.tabs[id] }));
+
+// Текст состояния здания: у бура, лесопилки и насоса «стоит» говорит о причине по-своему.
+function statusText(b, st) {
+  if (st === "blocked" && (b.type === BT.MINER || b.type === BT.SAWMILL || b.type === BT.PUMP)) return STR.minerBlocked;
+  if (st === "idle" && STR.resIdle[b.type]) return STR.resIdle[b.type];
+  return STR.status[st];
+}
+
+function lockText(tool) {
+  const info = factory.lockInfo(tool);
+  return `${STR.lockedBy} «${info.title}»`;
+}
+
 function buildingText(b) {
   let s = STR.building[b.type];
   if (b.type === BT.POLE) return `${s} · ${STR.pole.connects}: ${poleTargets(b.x, b.y).length}`;
   if (b.type === BT.POWERPLANT) return `${s} · ${STR.status.unplugged && !b.pw ? STR.status.unplugged : STR.plantStatus[factory.status(b)]} · ${STR.coal} ${b.coal}/4`;
   if (b.type === BT.SOLAR) return `${s} · ${b.pw ? STR.status.work : STR.status.unplugged}`;
   if (b.type === BT.STORAGE || b.type === BT.SPLITTER) return s;
+  if (b.type === BT.HOUSE) return `${s} · ${STR.cityWindow.pop.toLowerCase()} ${b.pop}/4 · ${STR.status[factory.status(b)]}`;
+  if (b.type === BT.SHOP || b.type === BT.PARK) return `${s} · ${STR.cityStatus[factory.status(b)]}`;
   if (b.type === BT.CONSTRUCTOR) s += ` (${STR.recipes[b.recipe].name})`;
   s += `, ${STR.dirs[b.dir]}`;
   const st = factory.status(b);
-  s += ` · ${b.type === BT.MINER && st === "blocked" ? STR.minerBlocked : STR.status[st]}`;
+  s += ` · ${statusText(b, st)}`;
   if (b.type === BT.SMELTER) s += ` · ${STR.fuel} ${b.fuel}/${FUEL_CAP}` + (b.pw ? "" : ` · ${STR.smelterOff}`);
   return s;
 }
@@ -132,7 +156,15 @@ async function start() {
   // ---- панель ----
   const hud = createHud({
     seed,
-    palette: BUILD_TOOLS.map((t) => ({ tool: t, name: STR.tools[t], cost: costText(COSTS[t]) })),
+    palette: BUILD_TOOLS.map((t) => ({ tool: t, name: STR.tools[t], cost: costText(COSTS[t]), tab: TAB[t] })),
+    tabs: TABS,
+    onDeliver: (id) => {
+      const c = factory.contracts().find((q) => q.id === id);
+      if (c && factory.deliver(id)) {
+        hud.toast(`${STR.contractDone}: +${c.coins} ${STR.coin}`);
+        refreshCity();
+      }
+    },
     onRecipe: (id) => {
       if (selected && factory.setRecipe(selected.x, selected.y, id)) {
         hud.setTile(tileText(selected.x, selected.y));
@@ -165,6 +197,11 @@ async function start() {
     if (b && b.type === BT.CONSTRUCTOR && !builder.active) {
       hud.showRecipes(RECIPE_ORDER.map((id) => ({ id, name: STR.recipes[id].name, desc: STR.recipes[id].desc })), b.recipe);
     } else hud.hideRecipes();
+  }
+
+  // Окно «Город»: данные города и открытых контрактов.
+  function refreshCity() {
+    hud.setCity({ ...factory.city, coins: factory.coins }, factory.contracts().map((c) => ({ ...c, unlock: UNLOCK_AT[c.id] })));
   }
 
   function setTool(t) {
@@ -238,7 +275,7 @@ async function start() {
         const target = ghost;
         const p = target && builder.preview(target.x, target.y);
         const n = builder.end();
-        if (n === 0 && p && !p.ok && p.reason) hud.toast(p.reason === "cost" ? missingText(p.missing) : STR.reason[p.reason], true);
+        if (n === 0 && p && !p.ok && p.reason) hud.toast(p.reason === "cost" ? missingText(p.missing) : p.reason === "locked" ? lockText(builder.tool) : STR.reason[p.reason], true);
         ghost = null;
         redrawMark();
       },
@@ -275,6 +312,7 @@ async function start() {
       dirty = false;
     }
     fl.render(cam, w, h, acc / TICK);
+    for (const e of factory.takeEvents()) if (e.why !== "tax") hud.coinPop(e.delta); // налог мелкими монетами не всплывает
 
     statTimer += tk.deltaMS;
     if (statTimer > 300) {
@@ -285,8 +323,10 @@ async function start() {
       hud.setPower(factory.hasPower() ? `${STR.powerLabel}: ${Math.round(g.demand)} / ${g.supply} ${STR.units}` : "", g.demand > g.supply);
       for (const t of BUILD_TOOLS) {
         const m = factory.missing(t);
-        hud.setLacking(t, Object.keys(m).length ? missingText(m) : "");
+        hud.setLacking(t, factory.isLocked(t) ? lockText(t) : Object.keys(m).length ? missingText(m) : "");
       }
+      hud.setCoins(factory.coins, factory.city.pop);
+      if (hud.isCityOpen()) refreshCity();
       hud.setStats(`${Math.round(app.ticker.FPS)} fps · кусков ${chunks.count} · построек ${factory.count} · x${cam.zoom.toFixed(2)}`);
       if (selected && !builder.active) hud.setTile(tileText(selected.x, selected.y));
     }

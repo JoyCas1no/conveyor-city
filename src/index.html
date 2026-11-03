@@ -49,6 +49,30 @@
   .tool.open { background: #2e4350; }
   .pal-open .zoom { display: none; }
   .toast { z-index: 6; }
+  .tabs { display: flex; gap: 6px; margin: 0 0 8px; }
+  .tab { flex: 1 1 0; min-height: 44px; border-radius: 10px; background: rgba(255, 255, 255, 0.08); font-size: 13px; border: 2px solid transparent; padding: 0 2px; }
+  .tab.on { border-color: var(--accent); background: rgba(70, 60, 20, 0.92); }
+  .pal[hidden] { display: none; }
+  .coinrow { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 6px; }
+  .coins { position: relative; font-weight: 600; color: #ffd23f; font-size: 14px; }
+  .citybtn { min-height: 44px; padding: 0 12px; border-radius: 10px; background: rgba(255, 255, 255, 0.1); font-size: 13px; }
+  .citybtn.open { background: #2e4350; }
+  .coinpop { position: absolute; left: 100%; margin-left: 8px; top: 0; font-weight: 700; pointer-events: none; animation: coinpop 1.3s ease-out forwards; white-space: nowrap; }
+  .coinpop.neg { color: #ff8a80; }
+  .coinpop.pos { color: #8aff9a; }
+  @keyframes coinpop { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(-18px); } }
+  .citysheet { max-height: min(60vh, 440px); overflow: auto; }
+  .cityhead { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+  .closebtn { min-width: 44px; min-height: 44px; border-radius: 10px; background: rgba(255, 255, 255, 0.1); font-size: 16px; }
+  .citystats { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 14px; font-size: 13px; margin-bottom: 8px; }
+  .citystats div { display: flex; justify-content: space-between; gap: 6px; }
+  .citystats span { color: var(--dim); }
+  .contract { display: flex; gap: 10px; align-items: center; justify-content: space-between; background: rgba(255, 255, 255, 0.07); border-radius: 10px; padding: 8px 10px; margin-bottom: 8px; border: 2px solid transparent; }
+  .contract.ready { border-color: #6fdc6f; }
+  .needs { display: flex; flex-direction: column; font-size: 12px; color: var(--dim); margin: 2px 0; }
+  .needs .okp { color: #9fe3a0; }
+  .deliver { min-width: 76px; min-height: 44px; border-radius: 10px; background: #2f7a3a; font-weight: 600; }
+  .deliver:disabled { background: #333; opacity: 0.5; }
 </style>
 </head>
 <body>

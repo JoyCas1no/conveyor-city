@@ -1,6 +1,6 @@
 // Рисование построек и выбор клетки с учётом высоты: без браузера, на «пустом» Graphics.
 import assert from "node:assert/strict";
-import { drawBelt, drawMiner, drawStorage, drawItem, drawGhost, drawSmelter, drawConstructor, drawSplitter, drawTall, drawPole, drawPowerPlant, drawSolar, drawLinks, drawRing, drawTileOutline, LAMP } from "../src/buildingdraw.js";
+import { drawBelt, drawMiner, drawStorage, drawItem, drawGhost, drawSmelter, drawConstructor, drawSplitter, drawTall, drawPole, drawPowerPlant, drawSolar, drawLinks, drawRing, drawTileOutline, drawSawmill, drawPump, drawHouse, drawShop, drawPark, LAMP } from "../src/buildingdraw.js";
 import { ITEMS, RECIPE_ORDER } from "../src/factory.js";
 import { pickTile, pickTileRaised, tileToScreen } from "../src/iso.js";
 import { BT } from "../src/factory.js";
@@ -98,6 +98,24 @@ for (const st of Object.keys(LAMP)) {
     assert.ok(h.calls.shapes > 3, "drawTall " + type);
     assert.equal(h.calls.bad, 0);
   }
+}
+
+// город: все здания во всех состояниях и направлениях
+for (const st of Object.keys(LAMP)) {
+  for (let dir = 0; dir < 4; dir++) {
+    for (const fn of [drawSawmill, drawPump, drawHouse, drawShop, drawPark]) {
+      const g = fakeG();
+      fn(g, { x: 3, y: -1, dir, pop: 2, res: true }, st);
+      assert.equal(g.calls.bad, 0, "NaN в городском здании: " + fn.name + " " + st);
+      assert.ok(g.calls.shapes >= 8, fn.name + " нарисован");
+    }
+  }
+}
+for (const type of [BT.SAWMILL, BT.PUMP, BT.HOUSE, BT.SHOP, BT.PARK]) {
+  const h = fakeG();
+  drawTall(h, { type, x: 0, y: 0, dir: 1, pop: 4 }, "work");
+  assert.ok(h.calls.shapes > 8, "drawTall " + type);
+  assert.equal(h.calls.bad, 0);
 }
 
 // выбор клетки с учётом скал: точка на поднятой вершине выбирает скалу, а не клетку позади

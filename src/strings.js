@@ -96,6 +96,8 @@ export const STR = {
     population: "Население",
   },
   coin: "монет",
+  resIdle: { sawmill: "стоит: рядом нет леса", pump: "стоит: рядом нет воды" },
+  contractDone: "Контракт выполнен",
   lockedBy: "Откроется после контракта",
   plantStatus: { work: "вырабатывает", idle: "есть топливо, спроса нет", nofuel: "ждёт уголь" },
   powerLabel: "Энергия",
@@ -116,11 +118,11 @@ export const STR = {
 
 // Текст «Не хватает: 4 Железный слиток, 2 Уголь».
 export function missingText(missing) {
-  return `${STR.lacking}: ` + Object.entries(missing).map(([t, n]) => `${n} ${STR.item[t]}`).join(", ");
+  return `${STR.lacking}: ` + Object.entries(missing).map(([t, n]) => `${n} ${t === "coins" ? STR.coin : STR.item[t]}`).join(", ");
 }
 
 // Текст цены «10 Железная руда» или «бесплатно».
 export function costText(cost) {
   if (!cost) return STR.free;
-  return Object.entries(cost).map(([t, n]) => `${n} ${STR.item[t]}`).join(", ");
+  return Object.entries(cost).map(([t, n]) => `${n} ${t === "coins" ? STR.coin : STR.item[t]}`).join(", ");
 }

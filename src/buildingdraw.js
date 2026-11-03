@@ -29,6 +29,8 @@ export const ITEM_COLORS = {
   iron_plate: [0xdfe5ec, 0x9aa6b4],
   gear: [0x8c98a6, 0x5d6a78],
   copper_wire: [0xe08a3c, 0x7a3d12],
+  plank: [0xdfb374, 0x9a6f3a],
+  water: [0x62b8ee, 0x2d78b8],
 };
 
 const S = (tx, ty) => tileToScreen(tx, ty);
@@ -275,6 +277,144 @@ export function drawTileOutline(g, x, y, color, alpha = 0.95) {
   g.poly([p.x, p.y, p.x + HW, p.y + HH, p.x, p.y + 2 * HH, p.x - HW, p.y + HH]).fill({ color, alpha: 0.18 }).stroke({ width: 2, color, alpha });
 }
 
+// Пузырёк над недовольным домом, магазином или парком: чего не хватает.
+function bubble(g, cx, cy, color) {
+  g.circle(cx, cy, 7.5).fill({ color: 0xffffff, alpha: 0.95 });
+  g.poly([cx - 2.5, cy + 6, cx + 2.5, cy + 6, cx, cy + 10]).fill({ color: 0xffffff, alpha: 0.95 });
+  g.circle(cx, cy, 4.4).fill(color);
+}
+
+// Лесопилка: бревенчатый сарай с пилой на стене и кучкой брёвен.
+export function drawSawmill(g, b, st = "work") {
+  const { x: cx, y: cy } = centerOf(b);
+  const hw = HW * 0.78;
+  const hh = HH * 0.78;
+  const h = 13;
+  shadow(g, cx, cy);
+  if (nozzleBehind(b)) nozzle(g, b);
+  cube(g, cx, cy, hw, hh, h, 0xb98a55, 0x8a6338, 0x6f4f2c);
+  // крыша-плита и пила на правой стене
+  g.poly([cx, cy - h - hh - 3, cx + hw + 2, cy - h - 1, cx, cy - h + hh + 2, cx - hw - 2, cy - h - 1]).fill(0x7a5632);
+  const sx = cx + hw * 0.5;
+  const sy = cy + hh * 0.5 - h * 0.45;
+  g.circle(sx, sy, 6).fill(0xc9ced6);
+  g.circle(sx, sy, 2.2).fill(0x4b525b);
+  for (let i = 0; i < 8; i++) {
+    const a = (i * Math.PI) / 4 + (st === "work" ? 0.4 : 0);
+    g.circle(sx + Math.cos(a) * 6.3, sy + Math.sin(a) * 6.3, 1.1).fill(0xe8ebef);
+  }
+  // брёвна
+  for (const [dx, dy] of [[-hw * 0.55, hh * 0.55], [-hw * 0.38, hh * 0.72]]) {
+    g.ellipse(cx + dx, cy + dy - 2, 8, 3.6).fill(0x8a5e34);
+    g.ellipse(cx + dx + 6, cy + dy - 3, 2.6, 3.4).fill(0xdcb27a);
+  }
+  if (!nozzleBehind(b)) nozzle(g, b);
+  lamp(g, cx, cy, h, st);
+}
+
+// Насос: голубой бак на стальной подставке с трубой и каплей на боку.
+export function drawPump(g, b, st = "work") {
+  const { x: cx, y: cy } = centerOf(b);
+  shadow(g, cx, cy);
+  if (nozzleBehind(b)) nozzle(g, b);
+  cube(g, cx, cy, HW * 0.72, HH * 0.72, 5, 0x9aa5b1, 0x6d7885, 0x59636f);
+  // бак-цилиндр
+  const r = HW * 0.44;
+  g.ellipse(cx, cy - 5, r, r * 0.5).fill(0x5d99c4);
+  g.poly([cx - r, cy - 5, cx - r, cy - 22, cx + r, cy - 22, cx + r, cy - 5]).fill(0x7bbbe6);
+  g.poly([cx, cy - 5 + r * 0.5, cx + r, cy - 5, cx + r, cy - 22, cx, cy - 22 + r * 0.5]).fill({ color: 0x1f4f7a, alpha: 0.28 });
+  g.ellipse(cx, cy - 22, r, r * 0.5).fill(0xa8d8f5);
+  // капля
+  g.circle(cx - 3, cy - 12, 3).fill(0xffffff);
+  g.poly([cx - 5.6, cy - 13.5, cx - 3, cy - 19, cx - 0.4, cy - 13.5]).fill(0xffffff);
+  // труба
+  g.rect(cx + r - 1, cy - 20, 5, 3).fill(0x6d7885);
+  if (!nozzleBehind(b)) nozzle(g, b);
+  lamp(g, cx, cy, 5, st);
+}
+
+// Дом: беленые стены, красная пирамидальная крыша, окна светятся у довольных, пузырёк у недовольных.
+export function drawHouse(g, b, st = "happy") {
+  const { x: cx, y: cy } = centerOf(b);
+  const hw = HW * 0.74;
+  const hh = HH * 0.74;
+  const h = 14;
+  shadow(g, cx, cy);
+  cube(g, cx, cy, hw, hh, h, 0xe9dcc0, 0xdccba4, 0xc2b08a);
+  // окна и дверь
+  const lit = st === "happy" ? 0xffe28a : 0x59616b;
+  g.poly([cx - hw * 0.72, cy + hh * 0.28 - 5, cx - hw * 0.3, cy + hh * 0.72 - 5, cx - hw * 0.3, cy + hh * 0.72 - 10, cx - hw * 0.72, cy + hh * 0.28 - 10]).fill(lit);
+  g.poly([cx + hw * 0.3, cy + hh * 0.7 - 5, cx + hw * 0.7, cy + hh * 0.3 - 5, cx + hw * 0.7, cy + hh * 0.3 - 10, cx + hw * 0.3, cy + hh * 0.7 - 10]).fill(lit);
+  g.poly([cx + hw * 0.05, cy + hh * 0.95 - 1, cx + hw * 0.22, cy + hh * 0.83 - 1, cx + hw * 0.22, cy + hh * 0.83 - 8, cx + hw * 0.05, cy + hh * 0.95 - 8]).fill(0x7a4e2d);
+  // крыша: пирамида
+  const rx = hw + 3;
+  const ry = hh + 2;
+  const top = cy - h;
+  const apex = top - 15;
+  g.poly([cx - rx, top, cx, top + ry, cx, apex]).fill(0xc4553f);
+  g.poly([cx, top + ry, cx + rx, top, cx, apex]).fill(0x9e4331);
+  g.poly([cx - rx, top, cx, top - ry, cx, apex]).fill(0xd96a52);
+  g.poly([cx, top - ry, cx + rx, top, cx, apex]).fill(0xb24b37);
+  // труба с дымом
+  g.rect(cx + hw * 0.3, apex - 1, 4, 9).fill(0x6b5646);
+  if (b.pop > 0 && st === "happy") {
+    g.ellipse(cx + hw * 0.3 + 2, apex - 6, 3.6, 2.4).fill({ color: 0xd9dbe0, alpha: 0.5 });
+    g.ellipse(cx + hw * 0.3 + 5, apex - 12, 3, 2).fill({ color: 0xd9dbe0, alpha: 0.3 });
+  }
+  if (st === "needwater") bubble(g, cx - hw * 0.6, apex - 10, 0x4aa8e0);
+  else if (st === "needplank") bubble(g, cx - hw * 0.6, apex - 10, 0xb98a55);
+  else if (st === "needboth") bubble(g, cx - hw * 0.6, apex - 10, 0xe0524a);
+}
+
+// Магазин: низкое здание с полосатым навесом и вывеской-шестерёнкой.
+export function drawShop(g, b, st = "work") {
+  const { x: cx, y: cy } = centerOf(b);
+  const hw = HW * 0.8;
+  const hh = HH * 0.8;
+  const h = 13;
+  shadow(g, cx, cy);
+  cube(g, cx, cy, hw, hh, h, 0xf1d9a8, 0xd9b97a, 0xb89a5e);
+  // навес на правой грани: красно-белые полосы
+  const gy = (t) => cy + hh * (1 - t);
+  for (let i = 0; i < 4; i++) {
+    const t1 = 0.1 + i * 0.2;
+    const t2 = t1 + 0.2;
+    g.poly([cx + hw * t1, gy(t1) - 5, cx + hw * t2, gy(t2) - 5, cx + hw * t2 + 2, gy(t2) - 1, cx + hw * t1 + 2, gy(t1) - 1]).fill(i % 2 ? 0xffffff : 0xd94a3c);
+  }
+  // витрина
+  g.poly([cx + hw * 0.2, gy(0.2) - 6, cx + hw * 0.8, gy(0.8) - 6, cx + hw * 0.8, gy(0.8) - 12, cx + hw * 0.2, gy(0.2) - 12]).fill(st === "work" ? 0xffe28a : 0x59616b);
+  // вывеска сверху
+  g.rect(cx - 7, cy - h - hh - 8, 14, 8).fill(0x5a3f26);
+  g.circle(cx, cy - h - hh - 4, 3).fill(0xe0a43a);
+  g.circle(cx, cy - h - hh - 4, 1.2).fill(0x5a3f26);
+  if (st !== "work") bubble(g, cx - hw * 0.6, cy - h - hh - 14, 0xe0a43a);
+}
+
+// Парк: зелёный сквер с дорожкой, деревьями и скамейкой.
+export function drawPark(g, b, st = "work") {
+  const { x: cx, y: cy } = centerOf(b);
+  const hw = HW * 0.94;
+  const hh = HH * 0.94;
+  g.poly([cx, cy - hh, cx + hw, cy, cx, cy + hh, cx - hw, cy]).fill(st === "work" ? 0x58a845 : 0x7a9a58);
+  const c = [b.x + 0.5, b.y + 0.5];
+  polyTiles(g, [[c[0] - 0.06, c[1] - 0.44], [c[0] + 0.06, c[1] - 0.44], [c[0] + 0.06, c[1] + 0.44], [c[0] - 0.06, c[1] + 0.44]], 0xe3d3a2, 1);
+  polyTiles(g, [[c[0] - 0.44, c[1] - 0.06], [c[0] + 0.44, c[1] - 0.06], [c[0] + 0.44, c[1] + 0.06], [c[0] - 0.44, c[1] + 0.06]], 0xe3d3a2, 1);
+  g.ellipse(cx, cy, 6, 3).fill(0x6bb8e6); // фонтанчик
+  g.ellipse(cx, cy - 1, 3.5, 1.7).fill(0xcfeaff);
+  for (const [dx, dy, sc] of [[-0.26, -0.24, 1], [0.27, 0.22, 0.85]]) {
+    const t = S(c[0] + dx, c[1] + dy);
+    g.ellipse(t.x, t.y + 1, 8 * sc, 3.5 * sc).fill({ color: 0x000000, alpha: 0.18 });
+    g.rect(t.x - 1.6, t.y - 9 * sc, 3.2, 9 * sc).fill(0x6b4a2f);
+    g.circle(t.x, t.y - 14 * sc, 8 * sc).fill(0x3d9a4f);
+    g.circle(t.x - 2.5, t.y - 16 * sc, 4.5 * sc).fill(0x5cb86a);
+  }
+  const bn = S(c[0] + 0.12, c[1] - 0.3);
+  g.rect(bn.x - 5, bn.y - 5, 10, 2.5).fill(0x8a5e34);
+  g.rect(bn.x - 4.5, bn.y - 2.5, 1.6, 3).fill(0x5a3f26);
+  g.rect(bn.x + 3, bn.y - 2.5, 1.6, 3).fill(0x5a3f26);
+  if (st !== "work") bubble(g, cx, cy - 22, 0xb98a55);
+}
+
 // Склад: деревянный ящик с крышкой и жёлто-чёрной полосой.
 export function drawStorage(g, b) {
   const { x: cx, y: cy } = centerOf(b);
@@ -304,6 +444,16 @@ export function drawTall(g, b, st) {
       return drawPowerPlant(g, b, st);
     case BT.SOLAR:
       return drawSolar(g, b, st);
+    case BT.SAWMILL:
+      return drawSawmill(g, b, st);
+    case BT.PUMP:
+      return drawPump(g, b, st);
+    case BT.HOUSE:
+      return drawHouse(g, b, st);
+    case BT.SHOP:
+      return drawShop(g, b, st);
+    case BT.PARK:
+      return drawPark(g, b, st);
     default:
       return drawStorage(g, b);
   }
@@ -324,6 +474,16 @@ export function drawItem(g, x, y, item) {
     g.poly([x - 6, y - 1, x, y + 2, x + 6, y - 1, x + 6, y - 4, x, y - 1, x - 6, y - 4]).fill(side); // боковые грани
     g.poly([x - 6, y - 4, x, y - 7, x + 6, y - 4, x, y - 1]).fill(top);
     g.poly([x - 3.4, y - 4, x, y - 5.6, x + 3.4, y - 4, x, y - 2.6]).fill({ color: 0xffffff, alpha: 0.3 });
+  } else if (item === "plank") {
+    g.poly([x - 8, y - 2, x + 1, y - 6.5, x + 8, y - 3, x - 1, y + 1.5]).fill(top);
+    g.poly([x - 8, y - 2, x - 1, y + 1.5, x - 1, y + 3.5, x - 8, y]).fill(side);
+    g.poly([x - 1, y + 1.5, x + 8, y - 3, x + 8, y - 1, x - 1, y + 3.5]).fill(shade(side, 0.85));
+    g.poly([x - 5, y - 2.6, x + 3.5, y - 5.4, x + 4, y - 4.8, x - 4.6, y - 2]).fill({ color: 0x7a5530, alpha: 0.5 }); // волокно
+  } else if (item === "water") {
+    g.circle(x, y - 4, 3.8).fill(side);
+    g.poly([x - 3.2, y - 5.4, x, y - 12, x + 3.2, y - 5.4]).fill(side);
+    g.circle(x - 0.4, y - 4.4, 2.8).fill(top);
+    g.ellipse(x - 1.4, y - 5.2, 1, 1.6).fill({ color: 0xffffff, alpha: 0.65 });
   } else if (item === "iron_plate") {
     g.poly([x - 6.5, y - 2, x, y + 1, x + 6.5, y - 2, x, y - 5]).fill(top);
     g.poly([x - 6.5, y - 2, x, y + 1, x, y + 2.6, x - 6.5, y - 0.4]).fill(side);
