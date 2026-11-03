@@ -2,6 +2,7 @@
 // Направления: 0 = +x (вправо-вниз на экране), 1 = +y (влево-вниз), 2 = -x (влево-вверх), 3 = -y (вправо-вверх).
 import { tileAt, T } from "./worldgen.js";
 import { contractAt, openIds, GATED } from "./contracts.js";
+import { MAX_LEVEL, SPEED, PLANT_MULT, HOUSE_CAP_BY, TAX_BY, NEED_MULT, SHOP_BONUS_BY, PARK_BONUS_BY, RADIUS_BY, UPGRADES, LEVEL_UNLOCK, isUpgradable, upgradeTotal } from "./upgrades.js";
 
 export const DIRS = [[1, 0], [0, 1], [-1, 0], [0, -1]];
 export const TICK = 0.05; // секунд на один шаг симуляции (20 в секунду)
@@ -80,7 +81,7 @@ const TYPE_OF = { b: BT.BELT, m: BT.MINER, s: BT.STORAGE, f: BT.SMELTER, c: BT.C
 // Попадает ли здание со смещением (dx, dy) от столба в радиус подключения.
 export const inPoleRange = (dx, dy) => dx * dx + dy * dy <= POLE_RADIUS * POLE_RADIUS;
 // Влияет ли здание в (dx, dy) от дома: магазин или парк в радиусе 6.
-export const inCityRange = (dx, dy) => dx * dx + dy * dy <= CITY_RADIUS * CITY_RADIUS;
+export const inCityRange = (dx, dy, r = CITY_RADIUS) => dx * dx + dy * dy <= r * r;
 
 // Места для лесопилки и насоса: функции карты (как руда у бура).
 export function sawmillSite(x, y, seed) {
@@ -236,8 +237,9 @@ export class Factory {
     return b;
   }
 
-  _make(type, x, y, dir, extra) {
-    const b = { type, x, y, dir: FIXED.has(type) ? 0 : dir };
+  _make(type, x, y, dir, extra, lvl = 1) {
+    const level = isUpgradable(type) && Number.isInteger(lvl) && lvl >= 1 && lvl <= MAX_LEVEL ? lvl : 1; // уровень Mk1-Mk3
+    const b = { type, x, y, dir: FIXED.has(type) ? 0 : dir, lvl: level };
     if (type === BT.BELT) b.item = null;
     if (type === BT.MINER) {
       b.ore = tileAt(x, y, this.seed).ore;
@@ -362,7 +364,7 @@ export class Factory {
     const b = this.get(x, y);
     if (!b) return false;
     this._giveBack(b);
-    const cost = COSTS[b.type];
+    const cost = this._paid(b);
     if (cost) {
       for (const t of Object.keys(cost)) {
         if (t === "coins") this._coin(cost[t], "refund");
@@ -375,6 +377,16 @@ export class Factory {
     this.map.delete(key(x, y));
     this._touch(x, y);
     return true;
+  }
+
+  // Всё, что заплачено за здание: базовая цена и все улучшения до его уровня (возвращается при сносе).
+  _paid(b) {
+    const base = COSTS[b.type];
+    const ups = upgradeTotal(b.type, b.lvl);
+    if (!base && !Object.keys(ups).length) return null;
+    const out = { ...(base || {}) };
+    for (const [k, n] of Object.entries(ups)) out[k] = (out[k] || 0) + n;
+    return out;
   }
 
   _touch(x, y) {
@@ -420,9 +432,9 @@ export class Factory {
   // Энергосеть: одна общая на весь мир. Выработка и спрос всех подключённых к столбам; станции жгут уголь по спросу.
   _grid(L) {
     let demand = 0;
-    for (const c of L.constructors) if (c.pw && (c.busy || c.have > 0)) demand += POWER.constructor;
+    for (const c of L.constructors) if (c.pw && (c.busy || c.have > 0)) demand += POWER.constructor * SPEED[c.lvl];
     for (const m of L.smelters) {
-      if (m.pw && ((m.busy && m.mode === "power") || (!m.busy && !m.out && m.in.iron_ore + m.in.copper_ore > 0))) demand += POWER.smelter;
+      if (m.pw && ((m.busy && m.mode === "power") || (!m.busy && !m.out && m.in.iron_ore + m.in.copper_ore > 0))) demand += POWER.smelter * SPEED[m.lvl];
     }
     let solar = 0;
     for (const o of L.solars) if (o.pw) solar += POWER.solar;
@@ -431,7 +443,8 @@ export class Factory {
       p.frac = 0;
       if (p.pw && (p.coal > 0 || p.burning)) avail.push(p);
     }
-    const cap = avail.length * POWER.plant;
+    let cap = 0;
+    for (const p of avail) cap += POWER.plant * PLANT_MULT[p.lvl]; // выработка по уровню станции
     const supply = solar + cap;
     const ratio = demand === 0 ? 1 : Math.min(1, supply / demand);
     const frac = cap > 0 ? Math.max(0, Math.min(demand - solar, cap)) / cap : 0; // доля мощности станций, нужная сейчас
@@ -530,7 +543,7 @@ export class Factory {
   _produce(m, kind, period) {
     if (!m.res) return;
     if (!m.out) {
-      m.prog += TICK;
+      m.prog += TICK * SPEED[m.lvl];
       if (m.prog >= period) {
         m.out = kind;
         m.prog = 0;
@@ -568,12 +581,12 @@ export class Factory {
     let happy = 0;
     let tax = 0;
     for (const h of L.houses) {
-      need(h, "bw", "lw", WATER_TICKS, "water");
-      need(h, "bp", "lp", PLANK_TICKS, "plank");
+      need(h, "bw", "lw", Math.round(WATER_TICKS / NEED_MULT[h.lvl]), "water");
+      need(h, "bp", "lp", Math.round(PLANK_TICKS / NEED_MULT[h.lvl]), "plank");
       pop += h.pop;
       if (!(h.lw > 0 && h.lp > 0)) continue;
       happy++;
-      if (h.pop < HOUSE_CAP) {
+      if (h.pop < HOUSE_CAP_BY[h.lvl]) {
         h.grow++;
         if (h.grow >= GROW_TICKS) {
           h.pop++;
@@ -583,21 +596,15 @@ export class Factory {
         }
       }
       if (h.pop <= 0) continue;
-      let shopNear = false;
-      for (const s of L.shops) {
-        if (s.left > 0 && inCityRange(s.x - h.x, s.y - h.y)) {
-          shopNear = true;
-          break;
-        }
+      let shopB = 0; // лучший бонус из снабжённых магазинов, у которых дом в радиусе (радиус по уровню)
+      for (const sh of L.shops) {
+        if (sh.left > 0 && inCityRange(sh.x - h.x, sh.y - h.y, RADIUS_BY[sh.lvl])) shopB = Math.max(shopB, SHOP_BONUS_BY[sh.lvl]);
       }
-      let parkNear = false;
-      for (const k of L.parks) {
-        if (k.left > 0 && inCityRange(k.x - h.x, k.y - h.y)) {
-          parkNear = true;
-          break;
-        }
+      let parkB = 0;
+      for (const pk of L.parks) {
+        if (pk.left > 0 && inCityRange(pk.x - h.x, pk.y - h.y, RADIUS_BY[pk.lvl])) parkB = Math.max(parkB, PARK_BONUS_BY[pk.lvl]);
       }
-      const rate = TAX_PER_MIN * (1 + (shopNear ? SHOP_BONUS : 0) + (parkNear ? PARK_BONUS : 0));
+      const rate = TAX_BY[h.lvl] * (1 + shopB + parkB);
       tax += rate;
       this.taxFrac += rate / 1200; // 1200 шагов в минуте
     }
@@ -607,6 +614,47 @@ export class Factory {
       this._coin(whole, "tax");
     }
     this.city = { pop, houses: L.houses.length, happy, tax, shops, parks };
+  }
+
+  // ---- улучшения Mk1-Mk3: на месте, содержимое остаётся ----
+  // Закрыт ли уровень контрактом: {index, title} или null.
+  levelLock(level) {
+    const id = LEVEL_UNLOCK[level];
+    return id !== undefined && !this.done.has(id) ? { index: id, title: contractAt(id).title } : null;
+  }
+
+  // Что нужно для следующего уровня: {ok, reason: none|max|locked|cost, level, cost, missing, lock}.
+  canUpgrade(x, y) {
+    const b = this.get(x, y);
+    if (!b || !isUpgradable(b.type)) return { ok: false, reason: "none" };
+    if (b.lvl >= MAX_LEVEL) return { ok: false, reason: "max", level: b.lvl };
+    const level = b.lvl + 1;
+    const cost = UPGRADES[b.type][level];
+    const lock = this.levelLock(level);
+    if (lock) return { ok: false, reason: "locked", level, cost, lock };
+    const missing = {};
+    for (const [k, n] of Object.entries(cost)) {
+      const lack = n - (k === "coins" ? this.coins : this.stock[k] || 0);
+      if (lack > 0) missing[k] = lack;
+    }
+    if (Object.keys(missing).length) return { ok: false, reason: "cost", level, cost, missing };
+    return { ok: true, reason: "", level, cost };
+  }
+
+  upgrade(x, y) {
+    const c = this.canUpgrade(x, y);
+    if (!c.ok) return false;
+    const b = this.get(x, y);
+    for (const [k, n] of Object.entries(c.cost)) {
+      if (k === "coins") this._coin(-n, "upgrade");
+      else {
+        this.stock[k] -= n;
+        this._add(this.sunk, k, n);
+      }
+    }
+    b.lvl = c.level;
+    this._touch(x, y);
+    return true;
   }
 
   // ---- контракты: до 3 открытых; сдаются со склада ----
@@ -651,7 +699,7 @@ export class Factory {
       const kind = ORE_ITEM[m.ore];
       if (!kind) continue; // под буром больше нет руды (карту могли изменить): стоит
       if (!m.out) {
-        m.prog += TICK;
+        m.prog += TICK * SPEED[m.lvl];
         if (m.prog >= MINER_PERIOD) {
           m.out = kind;
           m.prog = 0;
@@ -688,7 +736,7 @@ export class Factory {
           m.mode = "fuel"; // свет отключили: дожигаем на угле
           m.fuel--;
         }
-        const step = m.mode === "power" ? (power ? ratio : 0) : 1;
+        const step = (m.mode === "power" ? (power ? ratio : 0) : 1) * SPEED[m.lvl];
         m.prog = Math.min(SMELT_TICKS, m.prog + step);
         if (m.prog >= SMELT_TICKS && !m.out) {
           m.out = SMELT[m.busy];
@@ -711,7 +759,7 @@ export class Factory {
           m.prog = 0;
         }
         if (m.busy) {
-          m.prog = Math.min(r.ticks, m.prog + ratio);
+          m.prog = Math.min(r.ticks, m.prog + ratio * SPEED[m.lvl]);
           if (m.prog >= r.ticks && !m.out) {
             m.out = r.out;
             this._add(this.sunk, r.in);
@@ -849,6 +897,10 @@ export class Factory {
     for (const b of this.map.values()) {
       const e = [CODE[b.type], b.x, b.y, b.dir];
       if (b.type === BT.CONSTRUCTOR) e.push(b.recipe);
+      if (b.lvl > 1) {
+        if (e.length === 4) e.push(null);
+        e.push(b.lvl); // шестой элемент: уровень (старые клиенты его не читают)
+      }
       buildings.push(e);
     }
     return { v: SAVE_VERSION, seed: this.seed, buildings, stock: { ...this.stock }, coins: Math.floor(this.coins), done: [...this.done] };
@@ -864,10 +916,10 @@ export class Factory {
     let n = 0;
     for (const e of data.buildings) {
       if (!Array.isArray(e)) continue;
-      const [c, x, y, d, extra] = e;
+      const [c, x, y, d, extra, lvl] = e;
       const type = TYPE_OF[c];
       if (!type || !Number.isInteger(x) || !Number.isInteger(y) || !Number.isInteger(d) || d < 0 || d > 3) continue;
-      this.map.set(key(x, y), this._make(type, x, y, d, extra));
+      this.map.set(key(x, y), this._make(type, x, y, d, extra, lvl));
       this.dirty.add(key(x, y));
       n++;
     }
