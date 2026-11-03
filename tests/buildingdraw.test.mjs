@@ -1,6 +1,7 @@
 // Рисование построек и выбор клетки с учётом высоты: без браузера, на «пустом» Graphics.
 import assert from "node:assert/strict";
-import { drawBelt, drawMiner, drawStorage, drawItem, drawGhost } from "../src/buildingdraw.js";
+import { drawBelt, drawMiner, drawStorage, drawItem, drawGhost, drawSmelter, drawConstructor, drawSplitter, drawTall, LAMP } from "../src/buildingdraw.js";
+import { ITEMS, RECIPE_ORDER } from "../src/factory.js";
 import { pickTile, pickTileRaised, tileToScreen } from "../src/iso.js";
 import { BT } from "../src/factory.js";
 
@@ -43,6 +44,35 @@ for (let dir = 0; dir < 4; dir++) {
   drawItem(g, 10, 20, "coal");
   drawItem(g, 10, 20, "неизвестный");
   assert.equal(g.calls.bad, 0);
+}
+
+// новые машины и все предметы: без NaN, во всех состояниях и направлениях
+for (const st of Object.keys(LAMP)) {
+  for (let dir = 0; dir < 4; dir++) {
+    for (const [fn, extra] of [[drawSmelter, {}], [drawConstructor, { recipe: "plate" }], [drawConstructor, { recipe: "gear" }], [drawConstructor, { recipe: "wire" }]]) {
+      const g = fakeG();
+      fn(g, { x: 2, y: -4, dir, ...extra }, st);
+      assert.equal(g.calls.bad, 0, "NaN в машине");
+      assert.ok(g.calls.shapes > 10);
+    }
+  }
+}
+{
+  const g = fakeG();
+  drawSplitter(g, { type: BT.SPLITTER, x: 1, y: 1, dir: 0 });
+  assert.equal(g.calls.bad, 0);
+  for (const type of [BT.MINER, BT.STORAGE, BT.SMELTER, BT.CONSTRUCTOR, BT.SPLITTER]) {
+    const h = fakeG();
+    drawTall(h, { type, x: 0, y: 0, dir: 1, ore: 1, recipe: "plate" }, "work");
+    assert.equal(h.calls.bad, 0, "drawTall " + type);
+  }
+  for (const item of ITEMS) {
+    const h = fakeG();
+    drawItem(h, 5, 5, item);
+    assert.equal(h.calls.bad, 0, "предмет " + item);
+    assert.ok(h.calls.shapes >= 3, "предмет нарисован: " + item);
+  }
+  assert.equal(RECIPE_ORDER.length, 3);
 }
 
 // выбор клетки с учётом скал: точка на поднятой вершине выбирает скалу, а не клетку позади

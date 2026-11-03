@@ -4,7 +4,7 @@ import { Container, Graphics } from "pixi.js";
 import { CHUNK } from "./worldgen.js";
 import { tileToScreen } from "./iso.js";
 import { BT, DIRS, BELT_SPEED, TICK, itemPosition } from "./factory.js";
-import { drawBelt, drawMiner, drawStorage, drawItem } from "./buildingdraw.js";
+import { drawBelt, drawTall, drawItem } from "./buildingdraw.js";
 import { ChunkLayer } from "./chunklayer.js";
 
 const chunkOf = (v) => Math.floor(v / CHUNK);
@@ -69,7 +69,7 @@ export class FactoryLayer {
     const k = x + "," + y;
     const old = this.talls.get(k);
     const b = this.f.get(x, y);
-    const wanted = b && (b.type === BT.MINER || b.type === BT.STORAGE);
+    const wanted = b && b.type !== BT.BELT;
     if (old && (!wanted || old.type !== b.type)) {
       old.g.destroy();
       this.talls.delete(k);
@@ -86,13 +86,16 @@ export class FactoryLayer {
     this._drawTall(e, b);
   }
 
+  // Картинка высокого здания зависит от состояния (лампочка, свечение): перерисовываем, когда оно сменилось.
+  _stateOf(b) {
+    const st = this.f.status(b);
+    return b.type === BT.CONSTRUCTOR ? st + "|" + b.recipe : st;
+  }
+
   _drawTall(e, b) {
     e.g.clear();
-    if (b.type === BT.MINER) drawMiner(e.g, b);
-    else drawStorage(e.g, b);
-    e.state = b.type === BT.MINER ? stateOf(b) : "";
-    e.dir = b.dir;
-    e.ore = b.ore;
+    drawTall(e.g, b, this.f.status(b));
+    e.state = this._stateOf(b);
   }
 
   // Применяет изменения построек к картинке (вызывать каждый кадр до отрисовки).
@@ -112,10 +115,10 @@ export class FactoryLayer {
       }
     }
     for (const [k, e] of this.talls) {
-      if (e.type !== BT.MINER) continue;
+      if (e.type === BT.STORAGE || e.type === BT.SPLITTER) continue;
       const [x, y] = k.split(",").map(Number);
       const b = this.f.get(x, y);
-      if (b && stateOf(b) !== e.state) this._drawTall(e, b);
+      if (b && this._stateOf(b) !== e.state) this._drawTall(e, b);
     }
   }
 
@@ -144,8 +147,4 @@ export class FactoryLayer {
     this.talls.clear();
     this.items.clear();
   }
-}
-
-function stateOf(b) {
-  return !b.ore ? "idle" : b.blocked ? "blocked" : "work";
 }

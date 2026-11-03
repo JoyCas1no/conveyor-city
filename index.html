@@ -32,10 +32,23 @@
   .toast { position: absolute; left: 50%; bottom: calc(max(8px, env(safe-area-inset-bottom)) + 70px); transform: translateX(-50%); background: var(--panel); padding: 8px 14px; border-radius: 10px; font-size: 13px; opacity: 0; transition: opacity 0.2s; max-width: calc(100vw - 32px); text-align: center; }
   .toast.bad { background: rgba(150, 30, 30, 0.92); }
   .toast.show { opacity: 1; }
+  .sheet { position: absolute; left: max(8px, env(safe-area-inset-left)); right: max(8px, env(safe-area-inset-right)); bottom: calc(max(8px, env(safe-area-inset-bottom)) + 70px); background: var(--panel); border-radius: 14px; padding: 10px; pointer-events: auto; z-index: 4; max-width: 520px; margin: 0 auto; }
+  .sheet[hidden] { display: none; }
+  .sheet-title { font-size: 12px; color: var(--dim); margin: 0 4px 8px; }
+  .sheet-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .pal { min-height: 76px; border-radius: 10px; background: rgba(255, 255, 255, 0.08); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; padding: 6px 4px; border: 2px solid transparent; }
+  .pal .ico { font-size: 24px; line-height: 1; }
+  .pal .nm { font-size: 13px; font-weight: 600; }
+  .pal .cost { font-size: 10px; color: var(--dim); text-align: center; line-height: 1.25; }
+  .pal.on { border-color: var(--accent); background: rgba(70, 60, 20, 0.92); }
+  .pal.off { opacity: 0.45; }
+  .pal:active { background: #2e4350; }
+  .tool.open { background: #2e4350; }
+  .toast { z-index: 6; }
 </style>
 </head>
 <body>
 <div id="game"></div>
-<script src="game.js?v=b0131a9a"></script>
+<script src="game.js?v=c139c397"></script>
 </body>
 </html>

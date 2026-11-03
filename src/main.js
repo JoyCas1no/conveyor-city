@@ -6,12 +6,12 @@ import { attachInput } from "./input.js";
 import { createHud } from "./hud.js";
 import { HH, HW, pickTileRaised, tileToScreen } from "./iso.js";
 import { tileAt } from "./worldgen.js";
-import { Factory, BT, TICK } from "./factory.js";
-import { Builder } from "./builder.js";
+import { Factory, BT, TICK, COSTS, FUEL_CAP, RECIPE_ORDER } from "./factory.js";
+import { Builder, BUILD_TOOLS } from "./builder.js";
 import { drawGhost } from "./buildingdraw.js";
 import { readSave, writeSave, readLastSeed, writeLastSeed, sanitizeCam } from "./save.js";
 import { PAL } from "./palette.js";
-import { STR } from "./strings.js";
+import { STR, missingText, costText } from "./strings.js";
 
 const params = new URLSearchParams(location.search);
 const seedParam = Number(params.get("seed"));
@@ -21,10 +21,13 @@ writeLastSeed(seed);
 const factory = new Factory(seed);
 
 function buildingText(b) {
-  let s = `${STR.building[b.type]}`;
-  if (b.type === BT.STORAGE) return s;
+  let s = STR.building[b.type];
+  if (b.type === BT.STORAGE || b.type === BT.SPLITTER) return s;
+  if (b.type === BT.CONSTRUCTOR) s += ` (${STR.recipes[b.recipe].name})`;
   s += `, ${STR.dirs[b.dir]}`;
-  if (b.type === BT.MINER) s += ` · ${!b.ore ? STR.minerIdle : b.blocked ? STR.minerBlocked : STR.minerWork}`;
+  const st = factory.status(b);
+  s += ` · ${b.type === BT.MINER && st === "blocked" ? STR.minerBlocked : STR.status[st]}`;
+  if (b.type === BT.SMELTER) s += ` · ${STR.fuel} ${b.fuel}/${FUEL_CAP}`;
   return s;
 }
 
@@ -107,6 +110,13 @@ async function start() {
   // ---- панель ----
   const hud = createHud({
     seed,
+    palette: BUILD_TOOLS.map((t) => ({ tool: t, name: STR.tools[t], cost: costText(COSTS[t]) })),
+    onRecipe: (id) => {
+      if (selected && factory.setRecipe(selected.x, selected.y, id)) {
+        hud.setTile(tileText(selected.x, selected.y));
+        showRecipePanel();
+      }
+    },
     onZoom: (f) => {
       const { w, h } = size();
       zoomAt(cam, f, w / 2, h / 2, w, h);
@@ -127,8 +137,17 @@ async function start() {
     onRotate: () => rotate(),
   });
 
+  // Панель рецептов показывается, когда в режиме руки выбран станок.
+  function showRecipePanel() {
+    const b = selected && factory.get(selected.x, selected.y);
+    if (b && b.type === BT.CONSTRUCTOR && !builder.active) {
+      hud.showRecipes(RECIPE_ORDER.map((id) => ({ id, name: STR.recipes[id].name, desc: STR.recipes[id].desc })), b.recipe);
+    } else hud.hideRecipes();
+  }
+
   function setTool(t) {
     builder.setTool(t);
+    hud.hideRecipes();
     ghost = null;
     hud.setTool(builder.tool);
     hud.setTile(STR.toolHint[builder.tool]);
@@ -140,7 +159,7 @@ async function start() {
       hud.setRot(builder.rot);
     } else if (selected) {
       const b = factory.get(selected.x, selected.y);
-      if (b && b.type !== BT.STORAGE) {
+      if (b && b.type !== BT.STORAGE && b.type !== BT.SPLITTER) {
         factory.rotateAt(b.x, b.y, (b.dir + 1) % 4);
         hud.setTile(tileText(selected.x, selected.y));
       }
@@ -151,7 +170,7 @@ async function start() {
 
   window.addEventListener("keydown", (e) => {
     if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
-    const map = { Digit1: "miner", Digit2: "belt", Digit3: "storage", Digit4: "erase" };
+    const map = { Digit1: "miner", Digit2: "belt", Digit3: "storage", Digit4: "erase", Digit5: "smelter", Digit6: "constructor", Digit7: "splitter", KeyX: "erase" };
     if (map[e.code]) setTool(builder.tool === map[e.code] ? "hand" : map[e.code]);
     else if (e.code === "KeyR") rotate();
     else if (e.code === "Escape") setTool("hand");
@@ -163,6 +182,7 @@ async function start() {
     onTap: (sx, sy) => {
       selected = pick(sx, sy);
       hud.setTile(tileText(selected.x, selected.y));
+      showRecipePanel();
       redrawMark();
     },
     onHover: (sx, sy) => {
@@ -196,7 +216,7 @@ async function start() {
         const target = ghost;
         const p = target && builder.preview(target.x, target.y);
         const n = builder.end();
-        if (n === 0 && p && !p.ok && p.reason) hud.toast(STR.reason[p.reason], true);
+        if (n === 0 && p && !p.ok && p.reason) hud.toast(p.reason === "cost" ? missingText(p.missing) : STR.reason[p.reason], true);
         ghost = null;
         redrawMark();
       },
@@ -207,6 +227,7 @@ async function start() {
       },
     },
   });
+  app.canvas.addEventListener("pointerdown", () => hud.closePalette());
   window.addEventListener("resize", () => (dirty = true));
 
   // ---- главный цикл: симуляция по шагам TICK, отрисовка каждый кадр ----
@@ -236,8 +257,12 @@ async function start() {
     statTimer += tk.deltaMS;
     if (statTimer > 300) {
       statTimer = 0;
-      const items = Object.entries(factory.stock).filter(([, v]) => v > 0);
-      hud.setStock(items.length ? `${STR.stock}: ` + items.map(([k, v]) => `${STR.item[k]} ${v}`).join(" · ") : factory.count === 0 ? STR.stockEmpty : "");
+      const items = STR.itemOrder.filter((k) => factory.stock[k] > 0);
+      hud.setStock(items.length ? `${STR.stock}: ` + items.map((k) => `${STR.item[k]} ${factory.stock[k]}`).join(" · ") : factory.count === 0 ? STR.stockEmpty : "");
+      for (const t of BUILD_TOOLS) {
+        const m = factory.missing(t);
+        hud.setLacking(t, Object.keys(m).length ? missingText(m) : "");
+      }
       hud.setStats(`${Math.round(app.ticker.FPS)} fps · кусков ${chunks.count} · построек ${factory.count} · x${cam.zoom.toFixed(2)}`);
       if (selected && !builder.active) hud.setTile(tileText(selected.x, selected.y));
     }
