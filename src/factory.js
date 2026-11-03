@@ -512,6 +512,12 @@ export class Factory {
     }
   }
 
+  // Есть ли в мире хоть одна постройка энергосети (для показа строки «Энергия»).
+  hasPower() {
+    const L = this._lists();
+    return L.poles.length + L.plants.length + L.solars.length > 0;
+  }
+
   // Состояние здания для подсказки и лампочки: work, blocked, idle, noore, nofuel, clog, noinput.
   status(b) {
     if ((b.type === BT.CONSTRUCTOR || b.type === BT.POWERPLANT || b.type === BT.SOLAR) && !b.pw) return "unplugged";

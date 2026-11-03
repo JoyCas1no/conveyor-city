@@ -6,9 +6,9 @@ import { attachInput } from "./input.js";
 import { createHud } from "./hud.js";
 import { HH, HW, pickTileRaised, tileToScreen } from "./iso.js";
 import { tileAt } from "./worldgen.js";
-import { Factory, BT, TICK, COSTS, FUEL_CAP, RECIPE_ORDER } from "./factory.js";
+import { Factory, BT, TICK, COSTS, FUEL_CAP, RECIPE_ORDER, FIXED, POLE_RADIUS, inPoleRange } from "./factory.js";
 import { Builder, BUILD_TOOLS } from "./builder.js";
-import { drawGhost } from "./buildingdraw.js";
+import { drawGhost, drawRing, drawTileOutline } from "./buildingdraw.js";
 import { readSave, writeSave, readLastSeed, writeLastSeed, sanitizeCam } from "./save.js";
 import { PAL } from "./palette.js";
 import { STR, missingText, costText } from "./strings.js";
@@ -20,14 +20,30 @@ writeLastSeed(seed);
 
 const factory = new Factory(seed);
 
+// Сколько зданий подключит столб в (x, y): по тем же правилам, что и в симуляции.
+function poleTargets(x, y) {
+  const out = [];
+  for (let dy = -POLE_RADIUS; dy <= POLE_RADIUS; dy++) {
+    for (let dx = -POLE_RADIUS; dx <= POLE_RADIUS; dx++) {
+      if (!inPoleRange(dx, dy)) continue;
+      const t = factory.get(x + dx, y + dy);
+      if (t && t.pw !== undefined) out.push(t);
+    }
+  }
+  return out;
+}
+
 function buildingText(b) {
   let s = STR.building[b.type];
+  if (b.type === BT.POLE) return `${s} · ${STR.pole.connects}: ${poleTargets(b.x, b.y).length}`;
+  if (b.type === BT.POWERPLANT) return `${s} · ${STR.status.unplugged && !b.pw ? STR.status.unplugged : STR.plantStatus[factory.status(b)]} · ${STR.coal} ${b.coal}/4`;
+  if (b.type === BT.SOLAR) return `${s} · ${b.pw ? STR.status.work : STR.status.unplugged}`;
   if (b.type === BT.STORAGE || b.type === BT.SPLITTER) return s;
   if (b.type === BT.CONSTRUCTOR) s += ` (${STR.recipes[b.recipe].name})`;
   s += `, ${STR.dirs[b.dir]}`;
   const st = factory.status(b);
   s += ` · ${b.type === BT.MINER && st === "blocked" ? STR.minerBlocked : STR.status[st]}`;
-  if (b.type === BT.SMELTER) s += ` · ${STR.fuel} ${b.fuel}/${FUEL_CAP}`;
+  if (b.type === BT.SMELTER) s += ` · ${STR.fuel} ${b.fuel}/${FUEL_CAP}` + (b.pw ? "" : ` · ${STR.smelterOff}`);
   return s;
 }
 
@@ -96,6 +112,12 @@ async function start() {
         } else drawGhost(mark, ghost.x, ghost.y, p.ok, p.dir, p.type !== BT.STORAGE);
       }
     } else if (hover) outline(hover, 0xffffff, 0.55);
+    // Круг столба и подсветка зданий, которые он подключит (при выборе столба и при касании поставленного столба).
+    const poleAt = builder.tool === "pole" && ghost ? ghost : selected && factory.get(selected.x, selected.y)?.type === BT.POLE && !builder.active ? selected : null;
+    if (poleAt) {
+      drawRing(mark, poleAt.x, poleAt.y, POLE_RADIUS);
+      for (const t of poleTargets(poleAt.x, poleAt.y)) drawTileOutline(mark, t.x, t.y, 0x6fdc6f);
+    }
     if (selected) outline(selected, 0xffd23f, 1);
   };
 
@@ -159,7 +181,7 @@ async function start() {
       hud.setRot(builder.rot);
     } else if (selected) {
       const b = factory.get(selected.x, selected.y);
-      if (b && b.type !== BT.STORAGE && b.type !== BT.SPLITTER) {
+      if (b && !FIXED.has(b.type)) {
         factory.rotateAt(b.x, b.y, (b.dir + 1) % 4);
         hud.setTile(tileText(selected.x, selected.y));
       }
@@ -170,7 +192,7 @@ async function start() {
 
   window.addEventListener("keydown", (e) => {
     if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
-    const map = { Digit1: "miner", Digit2: "belt", Digit3: "storage", Digit4: "erase", Digit5: "smelter", Digit6: "constructor", Digit7: "splitter", KeyX: "erase" };
+    const map = { Digit1: "miner", Digit2: "belt", Digit3: "storage", Digit4: "erase", Digit5: "smelter", Digit6: "constructor", Digit7: "splitter", Digit8: "pole", Digit9: "powerplant", Digit0: "solar", KeyX: "erase" };
     if (map[e.code]) setTool(builder.tool === map[e.code] ? "hand" : map[e.code]);
     else if (e.code === "KeyR") rotate();
     else if (e.code === "Escape") setTool("hand");
@@ -259,6 +281,8 @@ async function start() {
       statTimer = 0;
       const items = STR.itemOrder.filter((k) => factory.stock[k] > 0);
       hud.setStock(items.length ? `${STR.stock}: ` + items.map((k) => `${STR.item[k]} ${factory.stock[k]}`).join(" · ") : factory.count === 0 ? STR.stockEmpty : "");
+      const g = factory.grid;
+      hud.setPower(factory.hasPower() ? `${STR.powerLabel}: ${Math.round(g.demand)} / ${g.supply} ${STR.units}` : "", g.demand > g.supply);
       for (const t of BUILD_TOOLS) {
         const m = factory.missing(t);
         hud.setLacking(t, Object.keys(m).length ? missingText(m) : "");

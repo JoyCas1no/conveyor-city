@@ -6,7 +6,18 @@ import { PAL, lerpColor, shade } from "./palette.js";
 // Цвета руд: название предмета -> номер руды в палитре.
 export const ITEM_ORE = { iron_ore: 1, copper_ore: 2, coal: 3 };
 // Лампочка состояния: зелёная работает, красная стоит (выход занят или забито), жёлтая ждёт сырьё или топливо.
-export const LAMP = { work: 0x6fdc6f, blocked: 0xe0524a, clog: 0xe0524a, idle: 0x8a8f96, noore: 0xf2c74a, nofuel: 0xf2c74a, noinput: 0xf2c74a };
+export const LAMP = {
+  work: 0x6fdc6f,
+  power: 0x6fdc6f,
+  blocked: 0xe0524a,
+  clog: 0xe0524a,
+  nopower: 0xe0524a,
+  idle: 0x8a8f96,
+  noore: 0xf2c74a,
+  nofuel: 0xf2c74a,
+  noinput: 0xf2c74a,
+  unplugged: 0xf2c74a,
+};
 // Цвета готовых предметов для панели и рецептов: [верх, бок].
 export const ITEM_COLORS = {
   iron_ingot: [0xc3cedc, 0x8392a3],
@@ -170,6 +181,96 @@ export function drawSplitter(g, b) {
   g.circle(cx, cy - h, 3.2).fill(0xffe08a);
 }
 
+// Столб: деревянная опора с перекладиной и изоляторами.
+export function drawPole(g, b) {
+  const { x: cx, y: cy } = centerOf(b);
+  shadow(g, cx, cy, 0.3);
+  g.rect(cx - 2, cy - 34, 4, 36).fill(0x8a6a46);
+  g.rect(cx - 2, cy - 34, 1.5, 36).fill({ color: 0xffffff, alpha: 0.18 });
+  g.rect(cx - 10, cy - 31, 20, 3).fill(0x6b4f33);
+  g.circle(cx - 8.5, cy - 33, 2.2).fill(0x9fd0e8);
+  g.circle(cx + 8.5, cy - 33, 2.2).fill(0x9fd0e8);
+  g.circle(cx, cy - 35, 2).fill(0xe0524a);
+}
+
+// Электростанция: бетонный корпус, полосатая труба, молния на стене, окно светится при работе.
+export function drawPowerPlant(g, b, st = "work") {
+  const { x: cx, y: cy } = centerOf(b);
+  const hw = HW * 0.82;
+  const hh = HH * 0.82;
+  const h = 16;
+  shadow(g, cx, cy);
+  cube(g, cx, cy, hw, hh, h, 0xa9aeb5, 0x7a8089, 0x646a72);
+  // молния на левой грани
+  const bx = cx - hw * 0.5;
+  const by = cy + hh * 0.5 - h * 0.5;
+  g.poly([bx + 3, by - 7, bx - 3, by + 1, bx, by + 1, bx - 3, by + 8, bx + 4, by - 1, bx + 1, by - 1]).fill(0xffd23f);
+  // окно на правой грани
+  const gy = (t) => cy + hh * (1 - t);
+  const x1 = cx + hw * 0.3;
+  const x2 = cx + hw * 0.7;
+  const win = st === "work" ? 0xffcf5a : 0x2a2f36;
+  g.poly([x1, gy(0.3) - 4, x2, gy(0.7) - 4, x2, gy(0.7) - 11, x1, gy(0.3) - 11]).fill(win);
+  // труба в два цвета
+  cube(g, cx - hw * 0.3, cy - h - 1, HW * 0.2, HH * 0.2, 12, 0xeeeeef, 0xc6c6cc, 0xaaaab0);
+  cube(g, cx - hw * 0.3, cy - h - 13, HW * 0.2, HH * 0.2, 10, 0xd8584a, 0xb04236, 0x923529);
+  if (st === "work") {
+    g.ellipse(cx - hw * 0.3 + 1, cy - h - 31, 5.5, 3.6).fill({ color: 0xd9dbe0, alpha: 0.5 });
+    g.ellipse(cx - hw * 0.3 + 4, cy - h - 39, 4.5, 3).fill({ color: 0xd9dbe0, alpha: 0.3 });
+  }
+  lamp(g, cx, cy, h, st);
+}
+
+// Солнечная панель: низкая рама и синий щит с сеткой.
+export function drawSolar(g, b, st = "work") {
+  const { x: cx, y: cy } = centerOf(b);
+  const hw = HW * 0.9;
+  const hh = HH * 0.9;
+  shadow(g, cx, cy, 0.92);
+  cube(g, cx, cy, hw, hh, 4, 0xb6bcc4, 0x7d848c, 0x666c74);
+  const c = [b.x + 0.5, b.y + 0.5];
+  polyTiles(g, [[c[0] - 0.4, c[1] - 0.4], [c[0] + 0.4, c[1] - 0.4], [c[0] + 0.4, c[1] + 0.4], [c[0] - 0.4, c[1] + 0.4]], 0x2f5fa8, 1, 4);
+  polyTiles(g, [[c[0] - 0.4, c[1] - 0.4], [c[0] + 0.4, c[1] - 0.4], [c[0] + 0.4, c[1] - 0.1], [c[0] - 0.4, c[1] - 0.1]], 0x4a86d4, 0.55, 4);
+  for (const k of [-0.133, 0.133]) {
+    polyTiles(g, [[c[0] + k - 0.012, c[1] - 0.4], [c[0] + k + 0.012, c[1] - 0.4], [c[0] + k + 0.012, c[1] + 0.4], [c[0] + k - 0.012, c[1] + 0.4]], 0xcfe3f7, 0.7, 4);
+    polyTiles(g, [[c[0] - 0.4, c[1] + k - 0.012], [c[0] + 0.4, c[1] + k - 0.012], [c[0] + 0.4, c[1] + k + 0.012], [c[0] - 0.4, c[1] + k + 0.012]], 0xcfe3f7, 0.7, 4);
+  }
+  if (st === "unplugged") g.circle(cx - hw * 0.55, cy - 4 + hh * 0.3, 2.4).fill(LAMP.unplugged);
+}
+
+// Линии энергосети: столб -> здание и столб -> столб. Одним росчерком.
+export function drawLinks(g, links) {
+  const top = (x, y, up) => {
+    const s = S(x + 0.5, y + 0.5);
+    return [s.x, s.y - up];
+  };
+  let any = false;
+  for (const [px, py, bx, by] of links.toBuildings) {
+    const a = top(px, py, 33);
+    const c = top(bx, by, 8);
+    g.moveTo(a[0], a[1]).lineTo(c[0], c[1]);
+    any = true;
+  }
+  for (const [ax, ay, bx, by] of links.toPoles) {
+    const a = top(ax, ay, 32);
+    const c = top(bx, by, 32);
+    g.moveTo(a[0], a[1]).lineTo(c[0], c[1]);
+    any = true;
+  }
+  if (any) g.stroke({ width: 1.5, color: 0xffe9a0, alpha: 0.6 });
+}
+
+// Круг подключения столба и контур клетки (для подсказки «что подключится»).
+export function drawRing(g, x, y, r) {
+  const c = S(x + 0.5, y + 0.5);
+  g.ellipse(c.x, c.y, r * HW * Math.SQRT2, r * HH * Math.SQRT2).fill({ color: 0xffe9a0, alpha: 0.08 }).stroke({ width: 1.5, color: 0xffe9a0, alpha: 0.7 });
+}
+
+export function drawTileOutline(g, x, y, color, alpha = 0.95) {
+  const p = tileToScreen(x, y);
+  g.poly([p.x, p.y, p.x + HW, p.y + HH, p.x, p.y + 2 * HH, p.x - HW, p.y + HH]).fill({ color, alpha: 0.18 }).stroke({ width: 2, color, alpha });
+}
+
 // Склад: деревянный ящик с крышкой и жёлто-чёрной полосой.
 export function drawStorage(g, b) {
   const { x: cx, y: cy } = centerOf(b);
@@ -193,6 +294,12 @@ export function drawTall(g, b, st) {
       return drawConstructor(g, b, st);
     case BT.SPLITTER:
       return drawSplitter(g, b);
+    case BT.POLE:
+      return drawPole(g, b);
+    case BT.POWERPLANT:
+      return drawPowerPlant(g, b, st);
+    case BT.SOLAR:
+      return drawSolar(g, b, st);
     default:
       return drawStorage(g, b);
   }

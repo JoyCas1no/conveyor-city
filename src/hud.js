@@ -1,7 +1,7 @@
 // Панели поверх карты (DOM): сведения, склад, масштаб, нижняя панель, палитра построек, выбор рецепта станка.
 import { STR } from "./strings.js";
 
-export const ICONS = { hand: "✋", build: "🏗", miner: "⛏", belt: "➡", storage: "📦", smelter: "🔥", constructor: "⚙", splitter: "🔀", erase: "🗑" };
+export const ICONS = { hand: "✋", build: "🏗", miner: "⛏", belt: "➡", storage: "📦", smelter: "🔥", constructor: "⚙", splitter: "🔀", pole: "🔌", powerplant: "🏭", solar: "☀️", erase: "🗑" };
 const ARROWS = ["↘", "↙", "↖", "↗"]; // как направления 0..3 выглядят на экране
 
 // palette: [{tool, name, cost}] в порядке показа. onRecipe(id) вызывается при выборе рецепта станка.
@@ -20,6 +20,7 @@ export function createHud({ seed, palette, onZoom, onHome, onNewMap, onTool, onR
       <div class="dim small">${STR.seed}${seed} · <button id="b-new" class="link">${STR.newMap}</button></div>
       <div id="tileinfo" class="info">${STR.hintHand}</div>
       <div id="stock" class="stock"></div>
+      <div id="power" class="power"></div>
       <div id="stats" class="dim small"></div>
     </div>
     <div class="zoom">
@@ -79,6 +80,11 @@ export function createHud({ seed, palette, onZoom, onHome, onNewMap, onTool, onR
     setTile: (text) => (q("#tileinfo").textContent = text),
     setStats: (text) => (q("#stats").textContent = text),
     setStock: (text) => (q("#stock").textContent = text),
+    setPower(text, bad) {
+      const el = q("#power");
+      el.textContent = text;
+      el.classList.toggle("bad", !!bad);
+    },
     // Подсветка выбранного инструмента; на кнопке «Постройки» показывается выбранная постройка.
     setTool(tool) {
       for (const btn of root.querySelectorAll("button.tool[data-tool]")) btn.classList.toggle("on", btn.dataset.tool === tool);

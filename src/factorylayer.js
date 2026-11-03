@@ -3,8 +3,8 @@
 import { Container, Graphics } from "pixi.js";
 import { CHUNK } from "./worldgen.js";
 import { tileToScreen } from "./iso.js";
-import { BT, DIRS, BELT_SPEED, TICK, itemPosition } from "./factory.js";
-import { drawBelt, drawTall, drawItem } from "./buildingdraw.js";
+import { BT, DIRS, BELT_SPEED, TICK, itemPosition, powerLinks } from "./factory.js";
+import { drawBelt, drawTall, drawItem, drawLinks } from "./buildingdraw.js";
 import { ChunkLayer } from "./chunklayer.js";
 
 const chunkOf = (v) => Math.floor(v / CHUNK);
@@ -18,8 +18,10 @@ export class FactoryLayer {
     this.tall.sortableChildren = true;
     this.beltChunks = new Map(); // "cx,cy" -> Graphics
     this.talls = new Map(); // "x,y" -> {g, blocked}
+    this.links = new Graphics(); // линии энергосети поверх всего
+    this.linksRev = -1;
     this.container = new Container();
-    this.container.addChild(this.beltsC, this.items, this.tall);
+    this.container.addChild(this.beltsC, this.items, this.tall, this.links);
   }
 
   // Клетки, из которых в эту ленту что-то подаётся (для формы поворота).
@@ -115,7 +117,7 @@ export class FactoryLayer {
       }
     }
     for (const [k, e] of this.talls) {
-      if (e.type === BT.STORAGE || e.type === BT.SPLITTER) continue;
+      if (e.type === BT.STORAGE || e.type === BT.SPLITTER || e.type === BT.POLE) continue;
       const [x, y] = k.split(",").map(Number);
       const b = this.f.get(x, y);
       if (b && this._stateOf(b) !== e.state) this._drawTall(e, b);
@@ -125,6 +127,11 @@ export class FactoryLayer {
   // alpha: доля текущего шага симуляции (0..1) для плавного движения предметов между шагами.
   render(cam, vw, vh, alpha) {
     this.sync();
+    if (this.f.rev !== this.linksRev) {
+      this.links.clear();
+      drawLinks(this.links, powerLinks(this.f));
+      this.linksRev = this.f.rev;
+    }
     const rect = ChunkLayer.viewRect(cam, vw, vh, 60);
     for (const g of this.beltChunks.values()) g.visible = ChunkLayer.overlaps(ChunkLayer.chunkBox(g.cx, g.cy), rect);
     const g = this.items;
@@ -146,5 +153,7 @@ export class FactoryLayer {
     this.beltChunks.clear();
     this.talls.clear();
     this.items.clear();
+    this.links.clear();
+    this.linksRev = -1;
   }
 }

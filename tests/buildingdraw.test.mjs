@@ -1,19 +1,19 @@
 // Рисование построек и выбор клетки с учётом высоты: без браузера, на «пустом» Graphics.
 import assert from "node:assert/strict";
-import { drawBelt, drawMiner, drawStorage, drawItem, drawGhost, drawSmelter, drawConstructor, drawSplitter, drawTall, LAMP } from "../src/buildingdraw.js";
+import { drawBelt, drawMiner, drawStorage, drawItem, drawGhost, drawSmelter, drawConstructor, drawSplitter, drawTall, drawPole, drawPowerPlant, drawSolar, drawLinks, drawRing, drawTileOutline, LAMP } from "../src/buildingdraw.js";
 import { ITEMS, RECIPE_ORDER } from "../src/factory.js";
 import { pickTile, pickTileRaised, tileToScreen } from "../src/iso.js";
 import { BT } from "../src/factory.js";
 
 function fakeG() {
   const calls = { shapes: 0, bad: 0 };
-  const chain = { fill() { return chain; }, stroke() { return chain; } };
+  const chain = { fill() { return chain; }, stroke() { return chain; }, lineTo() { return chain; }, moveTo() { return chain; } };
   const shape = (...args) => {
     calls.shapes++;
     for (const a of args.flat()) if (typeof a === "number" && !Number.isFinite(a)) calls.bad++;
     return chain;
   };
-  return { calls, poly: shape, ellipse: shape, circle: shape, rect: shape };
+  return { calls, poly: shape, ellipse: shape, circle: shape, rect: shape, moveTo: shape, lineTo: shape, stroke: shape };
 }
 
 let total = 0;
@@ -73,6 +73,31 @@ for (const st of Object.keys(LAMP)) {
     assert.ok(h.calls.shapes >= 3, "предмет нарисован: " + item);
   }
   assert.equal(RECIPE_ORDER.length, 3);
+}
+
+// энергосеть: столб, станция, панель, линии, круг; во всех состояниях
+{
+  for (const st of Object.keys(LAMP)) {
+    for (const [fn, b] of [[drawPowerPlant, { type: BT.POWERPLANT, x: 1, y: -3, dir: 0 }], [drawSolar, { type: BT.SOLAR, x: -2, y: 5, dir: 0 }]]) {
+      const g = fakeG();
+      fn(g, b, st);
+      assert.equal(g.calls.bad, 0, "NaN: " + b.type + " " + st);
+      assert.ok(g.calls.shapes >= 6);
+    }
+  }
+  const g = fakeG();
+  drawPole(g, { type: BT.POLE, x: 2, y: 2, dir: 0 });
+  drawRing(g, 3, 3, 4);
+  drawTileOutline(g, 4, 4, 0x6fdc6f);
+  drawLinks(g, { toBuildings: [[0, 0, 3, 1], [0, 0, -2, 2]], toPoles: [[0, 0, 5, 5]] });
+  drawLinks(g, { toBuildings: [], toPoles: [] });
+  assert.equal(g.calls.bad, 0, "NaN в столбе, кругу или линиях");
+  for (const type of [BT.POLE, BT.POWERPLANT, BT.SOLAR]) {
+    const h = fakeG();
+    drawTall(h, { type, x: 0, y: 0, dir: 0 }, "work");
+    assert.ok(h.calls.shapes > 3, "drawTall " + type);
+    assert.equal(h.calls.bad, 0);
+  }
 }
 
 // выбор клетки с учётом скал: точка на поднятой вершине выбирает скалу, а не клетку позади
