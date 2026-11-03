@@ -1,0 +1,17 @@
+{
+  "name": "Конвейер Сити",
+  "short_name": "Конвейер",
+  "description": "Симулятор заводов и города в браузере: добывайте, плавьте, стройте энергию и город.",
+  "lang": "ru",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#1b2a33",
+  "theme_color": "#1b2a33",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
