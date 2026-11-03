@@ -48,11 +48,14 @@
   .pal:active { background: #2e4350; }
   .tool.open { background: #2e4350; }
   .pal-open .zoom { display: none; }
+  .pal-open .panel .stock, .pal-open .panel .power, .pal-open .panel #stats { display: none; } /* пока открыта панель снизу, верх короче: окно не налезает */
+  .pal-open .panel .info { max-height: 2.9em; overflow: hidden; }
   .toast { z-index: 6; }
   .tabs { display: flex; gap: 6px; margin: 0 0 8px; }
   .tab { flex: 1 1 0; min-height: 44px; border-radius: 10px; background: rgba(255, 255, 255, 0.08); font-size: 13px; border: 2px solid transparent; padding: 0 2px; }
   .tab.on { border-color: var(--accent); background: rgba(70, 60, 20, 0.92); }
   .pal[hidden] { display: none; }
+  .pal-grid { min-height: 160px; align-content: start; } /* две строки: строка вкладок не прыгает при переключении */
   .coinrow { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 6px; }
   .coins { position: relative; font-weight: 600; color: #ffd23f; font-size: 14px; }
   .citybtn { min-height: 44px; padding: 0 12px; border-radius: 10px; background: rgba(255, 255, 255, 0.1); font-size: 13px; }
@@ -61,7 +64,7 @@
   .coinpop.neg { color: #ff8a80; }
   .coinpop.pos { color: #8aff9a; }
   @keyframes coinpop { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(-18px); } }
-  .citysheet { max-height: min(60vh, 440px); overflow: auto; }
+  .citysheet { max-height: min(calc(100vh - 300px), 440px); overflow: auto; } /* не налезает на верхнюю панель даже на 667 px */
   .cityhead { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
   .closebtn { min-width: 44px; min-height: 44px; border-radius: 10px; background: rgba(255, 255, 255, 0.1); font-size: 16px; }
   .citystats { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 14px; font-size: 13px; margin-bottom: 8px; }

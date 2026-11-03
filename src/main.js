@@ -318,7 +318,8 @@ async function start() {
     if (statTimer > 300) {
       statTimer = 0;
       const items = STR.itemOrder.filter((k) => factory.stock[k] > 0);
-      hud.setStock(items.length ? `${STR.stock}: ` + items.map((k) => `${STR.item[k]} ${factory.stock[k]}`).join(" · ") : factory.count === 0 ? STR.stockEmpty : "");
+      const num = (n) => (n >= 10000 ? (n / 1000).toFixed(1).replace(".", ",") + "к" : n); // 12345 -> 12,3к
+      hud.setStock(items.length ? `${STR.stock}: ` + items.map((k) => `${STR.item[k]} ${num(factory.stock[k])}`).join(" · ") : factory.count === 0 ? STR.stockEmpty : "");
       const g = factory.grid;
       hud.setPower(factory.hasPower() ? `${STR.powerLabel}: ${Math.round(g.demand)} / ${g.supply} ${STR.units}` : "", g.demand > g.supply);
       for (const t of BUILD_TOOLS) {
