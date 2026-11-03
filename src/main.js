@@ -11,16 +11,35 @@ import { Builder, BUILD_TOOLS } from "./builder.js";
 import { UNLOCK_AT } from "./contracts.js";
 import { isUpgradable } from "./upgrades.js";
 import { drawGhost, drawRing, drawTileOutline } from "./buildingdraw.js";
-import { readSave, writeSave, readLastSeed, writeLastSeed, sanitizeCam } from "./save.js";
+import { readLastSeed, writeLastSeed, sanitizeCam } from "./save.js";
+import { MapStore, createMirror, openIdbBackend, exportFile, parseImport } from "./storage.js";
+import { buildVersion, registerSw, applyUpdate, offlineReady, persistStatus, saveFile } from "./pwa.js";
 import { PAL } from "./palette.js";
 import { STR, missingText, costText } from "./strings.js";
 
+const MAX_IMPORT = 5_000_000; // байт
 const params = new URLSearchParams(location.search);
 const seedParam = Number(params.get("seed"));
-const seed = Number.isInteger(seedParam) && seedParam > 0 ? seedParam : readLastSeed() || 1337;
-writeLastSeed(seed);
+// Номер карты и завод появляются в начале start(): сначала нужно прочитать хранилище.
+let seed = 0;
+let factory = null;
 
-const factory = new Factory(seed);
+function safeStorage() {
+  try {
+    return window.localStorage;
+  } catch {
+    return null; // доступ к localStorage запрещён
+  }
+}
+
+// Какую карту открыть: из адреса (?seed=), иначе последнюю, иначе самую свежую из сохранённых, иначе 1337.
+async function pickSeed(store) {
+  if (Number.isInteger(seedParam) && seedParam > 0) return seedParam;
+  const last = readLastSeed();
+  if (last) return last;
+  const maps = await store.list();
+  return maps.length ? maps[0].seed : 1337;
+}
 
 // Сколько зданий подключит столб в (x, y): по тем же правилам, что и в симуляции.
 function poleTargets(x, y) {
@@ -82,6 +101,11 @@ function tileText(x, y) {
 }
 
 async function start() {
+  const store = new MapStore(await openIdbBackend(typeof indexedDB !== "undefined" ? indexedDB : null), createMirror(safeStorage()));
+  await store.migrate(); // прежние сохранения (localStorage) подхватываются один раз
+  seed = await pickSeed(store);
+  writeLastSeed(seed);
+  factory = new Factory(seed);
   const app = new Application();
   await app.init({
     preference: "webgl",
@@ -93,7 +117,7 @@ async function start() {
   });
   document.getElementById("game").appendChild(app.canvas);
 
-  const save = readSave(seed);
+  const save = await store.load(seed);
   const loaded = save ? factory.loadJSON(save) : -1;
   const startCam = (loaded >= 0 && sanitizeCam(save.cam)) || { x: 0, y: HH, zoom: 1 };
   const cam = createCamera(startCam.x, startCam.y, startCam.zoom);
@@ -158,12 +182,27 @@ async function start() {
   };
 
   // ---- сохранение ----
-  const saveNow = () => writeSave(seed, { ...factory.toJSON(), cam: { x: cam.x, y: cam.y, zoom: cam.zoom } });
+  let autosave = true; // выключается перед переходом на другую карту или загрузкой файла, чтобы старое состояние не затёрло новое
+  let lastSaved = 0;
+  const payload = () => ({ ...factory.toJSON(), cam: { x: cam.x, y: cam.y, zoom: cam.zoom }, ts: Date.now(), pop: factory.city.pop });
+  const saveNow = async () => {
+    if (!autosave) return false;
+    const ok = await store.save(seed, payload());
+    if (ok) lastSaved = Date.now();
+    return ok;
+  };
+  // Закрывающейся вкладке успеть можно только синхронно: зеркало localStorage сразу, IndexedDB как получится.
+  const saveQuick = () => {
+    if (!autosave) return;
+    const p = payload();
+    store.saveSync(seed, p);
+    store.save(seed, p);
+  };
   setInterval(saveNow, 5000);
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "hidden") saveNow();
+    if (document.visibilityState === "hidden") saveQuick();
   });
-  window.addEventListener("pagehide", saveNow);
+  window.addEventListener("pagehide", saveQuick);
 
   // ---- панель ----
   const hud = createHud({
@@ -195,14 +234,75 @@ async function start() {
       cam.zoom = 1;
       dirty = true;
     },
-    onNewMap: () => {
+    onNewMap: async () => {
       if (factory.count > 0 && !window.confirm(STR.newMapConfirm)) return;
-      saveNow();
+      await saveNow();
+      autosave = false;
       location.search = "?seed=" + (1 + Math.floor(Math.random() * 999999));
+    },
+    onMenuOpen: () => refreshMenu(),
+    onOpenMap: async (n) => {
+      await saveNow();
+      autosave = false;
+      location.search = "?seed=" + n;
+    },
+    onDeleteMap: async (n) => {
+      if (n === seed || !window.confirm(STR.menu.deleteConfirm(n))) return; // текущую карту удалить нельзя
+      await store.remove(n);
+      refreshMenu();
+    },
+    onExport: async () => {
+      const file = exportFile(payload(), buildVersion());
+      const how = await saveFile(file.name, file.text);
+      if (how !== "cancel") hud.toast(how === "share" ? STR.menu.shared : STR.menu.exported);
+    },
+    onImport: async (file) => {
+      if (file.size > MAX_IMPORT) return hud.toast(STR.menu.importError.size, true);
+      const r = parseImport(await file.text());
+      if (!r.ok) return hud.toast(STR.menu.importError[r.error] || STR.menu.importError.map, true);
+      const n = r.payload.seed;
+      if ((await store.load(n)) && !window.confirm(STR.menu.importConfirm(n))) return;
+      await saveNow(); // текущая карта цела; затем загруженная кладётся как свежая и открывается
+      autosave = false;
+      await store.save(n, { ...r.payload, ts: Date.now() });
+      hud.toast(STR.menu.imported);
+      location.search = "?seed=" + n;
+    },
+    onUpdate: () => {
+      if (updateWaiting)
+        applyUpdate(updateWaiting, async () => {
+          await saveNow();
+          autosave = false;
+        });
     },
     onTool: (t) => setTool(builder.tool === t && t !== "hand" ? "hand" : t),
     onRotate: () => rotate(),
   });
+
+  // ---- меню и офлайн-режим ----
+  let swReg = null;
+  let updateWaiting = null;
+  let persistent = false;
+  persistStatus().then((p) => (persistent = p));
+  async function refreshMenu() {
+    hud.setMenu({
+      maps: await store.list(),
+      current: seed,
+      saved: lastSaved,
+      version: buildVersion(),
+      offline: await offlineReady(swReg),
+      persistent,
+      storageOk: store.works,
+      updateReady: !!updateWaiting,
+    });
+  }
+  registerSw({
+    onWaiting: (w) => {
+      updateWaiting = w;
+      hud.setMenuBadge(true);
+      hud.toast(STR.menu.updateToast);
+    },
+  }).then((r) => (swReg = r));
 
   // Панель здания: в режиме руки у станка рецепты, у любого улучшаемого здания улучшение Mk1-Mk3.
   let panelSig = "";
@@ -337,6 +437,7 @@ async function start() {
   // ---- главный цикл: симуляция по шагам TICK, отрисовка каждый кадр ----
   let acc = 0;
   let statTimer = 0;
+  let menuTick = 0;
   app.ticker.add((tk) => {
     applyKeys(tk.deltaMS);
     for (let i = fx.length - 1; i >= 0; i--) {
@@ -383,6 +484,7 @@ async function start() {
       }
       hud.setCoins(factory.coins, factory.city.pop);
       if (hud.isCityOpen()) refreshCity();
+      if (hud.isMenuOpen() && ++menuTick % 7 === 0) refreshMenu(); // раз в ~2 с, пока меню открыто
       if (hud.isInspectOpen()) showRecipePanel(false); // цена и наличие меняются: обновляем кнопку, только если что-то изменилось
       hud.setStats(`${Math.round(app.ticker.FPS)} fps · кусков ${chunks.count} · построек ${factory.count} · x${cam.zoom.toFixed(2)}`);
       if (selected && !builder.active) hud.setTile(tileText(selected.x, selected.y));

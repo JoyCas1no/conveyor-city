@@ -10,7 +10,7 @@ const ARROWS = ["↘", "↙", "↖", "↗"]; // как направления 0.
 
 // palette: [{tool, name, cost, tab}] в порядке показа; tabs: [{id, name}].
 // onRecipe(id): рецепт станка; onDeliver(id): сдача контракта.
-export function createHud({ seed, palette, tabs, onZoom, onHome, onNewMap, onTool, onRotate, onRecipe, onDeliver, onUpgrade }) {
+export function createHud({ seed, palette, tabs, onZoom, onHome, onNewMap, onTool, onRotate, onRecipe, onDeliver, onUpgrade, onMenuOpen, onOpenMap, onDeleteMap, onExport, onImport, onUpdate }) {
   const root = document.createElement("div");
   root.id = "hud";
   const tabButtons = tabs.map((t) => `<button class="tab" data-tab="${t.id}">${t.name}</button>`).join("");
@@ -23,11 +23,11 @@ export function createHud({ seed, palette, tabs, onZoom, onHome, onNewMap, onToo
   root.innerHTML = `
     <div class="panel top">
       <b>${STR.title}</b> <span class="dim">${STR.stage}</span>
-      <div class="dim small">${STR.seed}${seed} · <button id="b-new" class="link">${STR.newMap}</button></div>
+      <div class="dim small">${STR.seed}${seed}</div>
       <div id="tileinfo" class="info">${STR.hintHand}</div>
       <div id="stock" class="stock"></div>
       <div id="power" class="power"></div>
-      <div class="coinrow"><span id="coins" class="coins">🪙 0 · 👥 0</span><button id="b-city" class="citybtn">🏙 ${STR.cityWindow.button}</button></div>
+      <div class="coinrow"><span id="coins" class="coins">🪙 0 · 👥 0</span><span class="btnrow"><button id="b-city" class="citybtn">🏙 ${STR.cityWindow.button}</button><button id="b-menu" class="citybtn" aria-label="${STR.menu.button}">☰</button></span></div>
       <div id="stats" class="dim small"></div>
     </div>
     <div class="zoom">
@@ -47,6 +47,19 @@ export function createHud({ seed, palette, tabs, onZoom, onHome, onNewMap, onToo
       <div class="sheet-title">${STR.cityWindow.contracts}</div>
       <div id="contracts" class="contracts"></div>
     </div>
+    <div id="menu" class="sheet citysheet" hidden>
+      <div class="cityhead"><b>☰ ${STR.menu.title}</b><button id="menu-close" class="closebtn" aria-label="${STR.menu.close}">✕</button></div>
+      <div id="menustatus" class="menustatus"></div>
+      <button id="menu-update" class="upbtn" hidden>${STR.menu.update}</button>
+      <div class="menubtns">
+        <button id="menu-new" class="mbtn">🗺<br>${STR.menu.newMap}</button>
+        <button id="menu-export" class="mbtn">💾<br>${STR.menu.export}</button>
+        <button id="menu-import" class="mbtn">📂<br>${STR.menu.import}</button>
+      </div>
+      <input id="file-in" type="file" accept=".json,application/json" hidden>
+      <div class="sheet-title">${STR.menu.maps}</div>
+      <div id="maplist" class="maplist"></div>
+    </div>
     <div class="bar">
       <button class="tool" data-tool="hand" aria-label="${STR.tools.hand}"><span class="ico">${ICONS.hand}</span><span class="lbl">${STR.tools.hand}</span></button>
       <button class="tool" id="b-build" aria-label="${STR.tools.build}"><span class="ico" id="build-ico">${ICONS.build}</span><span class="lbl" id="build-lbl">${STR.tools.build}</span></button>
@@ -55,7 +68,7 @@ export function createHud({ seed, palette, tabs, onZoom, onHome, onNewMap, onToo
     </div>`;
   document.body.appendChild(root);
   const q = (id) => root.querySelector(id);
-  const sheets = { palette: q("#palette"), recipes: q("#inspect"), city: q("#city") }; // «recipes» это панель здания (рецепт и улучшение)
+  const sheets = { palette: q("#palette"), recipes: q("#inspect"), city: q("#city"), menu: q("#menu") }; // «recipes» это панель здания (рецепт и улучшение)
   const tabOf = Object.fromEntries(palette.map((p) => [p.tool, p.tab]));
   let cityOpen = false;
 
@@ -65,6 +78,7 @@ export function createHud({ seed, palette, tabs, onZoom, onHome, onNewMap, onToo
     cityOpen = name === "city";
     q("#b-build").classList.toggle("open", name === "palette");
     q("#b-city").classList.toggle("open", name === "city");
+    q("#b-menu").classList.toggle("open", name === "menu");
     root.classList.toggle("pal-open", !!name);
   }
   const closeSheets = () => openSheet(null);
@@ -79,7 +93,20 @@ export function createHud({ seed, palette, tabs, onZoom, onHome, onNewMap, onToo
   q("#b-in").onclick = () => onZoom(1.3);
   q("#b-out").onclick = () => onZoom(1 / 1.3);
   q("#b-home").onclick = () => onHome();
-  q("#b-new").onclick = () => onNewMap();
+  q("#b-menu").onclick = () => {
+    openSheet(sheets.menu.hidden ? "menu" : null);
+    if (!sheets.menu.hidden) onMenuOpen();
+  };
+  q("#menu-close").onclick = () => closeSheets();
+  q("#menu-new").onclick = () => onNewMap();
+  q("#menu-export").onclick = () => onExport();
+  q("#menu-update").onclick = () => onUpdate();
+  q("#menu-import").onclick = () => q("#file-in").click();
+  q("#file-in").onchange = (e) => {
+    const f = e.target.files && e.target.files[0];
+    e.target.value = ""; // чтобы тот же файл можно было выбрать повторно
+    if (f) onImport(f);
+  };
   q("#b-rot").onclick = () => onRotate();
   q("#b-build").onclick = () => openSheet(sheets.palette.hidden ? "palette" : null);
   q("#b-city").onclick = () => openSheet(sheets.city.hidden ? "city" : null);
@@ -147,6 +174,36 @@ export function createHud({ seed, palette, tabs, onZoom, onHome, onNewMap, onToo
     closeSheets,
     closePalette: closeSheets, // касание карты закрывает палитру и окно «Город»
     isCityOpen: () => cityOpen,
+    isMenuOpen: () => !sheets.menu.hidden,
+    setMenuBadge: (on) => q("#b-menu").classList.toggle("badge", !!on),
+    // Меню: data {maps:[{seed, ts, buildings, coins, pop}], current, saved, version, offline, persistent, storageOk, updateReady}.
+    setMenu(d) {
+      const M = STR.menu;
+      const fmt = (ts) => {
+        if (!ts) return "—";
+        const t = new Date(ts);
+        const hm = t.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+        return t.toDateString() === new Date().toDateString() ? hm : `${t.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" })} ${hm}`;
+      };
+      q("#menustatus").innerHTML =
+        `<span class="dim">${M.saved}</span><b>${d.saved ? fmt(d.saved) : M.never}</b>` +
+        `<span class="dim">${M.version}</span><b>${d.version}</b>` +
+        `<span class="dim">${M.offline}</span><b>${d.offline ? M.offlineReady : M.offlineNo}</b>` +
+        `<span class="dim">${M.storage}</span><b>${d.persistent ? M.persistent : M.notPersistent}</b>` +
+        (d.storageOk ? "" : `<span class="warn">⚠ ${M.storageBroken}</span>`);
+      q("#menu-update").hidden = !d.updateReady;
+      q("#maplist").innerHTML = d.maps.length
+        ? d.maps
+            .map((m) => {
+              const cur = m.seed === d.current;
+              const btns = cur ? "" : `<div class="mb"><button class="mopen" data-seed="${m.seed}">${M.open}</button><button class="mdel del" data-seed="${m.seed}">${M.delete}</button></div>`;
+              return `<div class="mapitem${cur ? " cur" : ""}"><div class="mi"><b>${STR.seed}${m.seed}${cur ? " · " + M.current : ""}</b><div class="small dim">${m.buildings} ${M.buildings} · 🪙 ${m.coins} · 👥 ${m.pop} · ${fmt(m.ts)}</div></div>${btns}</div>`;
+            })
+            .join("")
+        : `<div class="small dim">${M.empty}</div>`;
+      for (const b of q("#maplist").querySelectorAll(".mopen")) b.onclick = () => onOpenMap(Number(b.dataset.seed));
+      for (const b of q("#maplist").querySelectorAll(".mdel")) b.onclick = () => onDeleteMap(Number(b.dataset.seed));
+    },
     // Панель здания: рецепты станка (recipes: [{id, name, desc}] или null) и улучшение
     // (upgrade: {now, maxed} или {now, level, effect, cost, ok, why}; null для неулучшаемых).
     showBuilding({ recipes, current, upgrade }) {
