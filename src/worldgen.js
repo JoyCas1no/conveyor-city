@@ -51,7 +51,7 @@ export function tileAt(x, y, seed) {
   else if (e < SAND_LEVEL) type = T.SAND;
   else if (e >= HILL_LEVEL) {
     type = T.HILL;
-    h = 10 + Math.floor(Math.min(1, (e - HILL_LEVEL) / 0.12) * 26);
+    h = 12 + Math.floor(Math.min(1, (e - HILL_LEVEL) / 0.12) * 6) * 4; // ступенями по 4 px, без тонких швов
   } else type = m > FOREST_M && d >= 22 ? T.FOREST : T.GRASS;
   const ore = type === T.GRASS || type === T.SAND ? oreAt(x, y, seed) : ORE.NONE;
   return { type, ore, h, e, m };
