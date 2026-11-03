@@ -327,6 +327,14 @@ const feedIngots = (f, x, y, item = "iron_ingot") => () => {
   run(f, 5);
   assert.ok(f.get(4, 11).pw, "панель подключена");
   assert.ok(f.grid.supply >= POWER.solar, "в сети есть выработка");
+  // дальше цепочка ведёт в город: насос (слитки и пластины) и лесопилка (слитки) достижимы, когда станок снова делает пластины
+  f.setRecipe(2, 8, "plate");
+  let afford = false;
+  for (let sec = 0; sec < 400 && !afford; sec++) {
+    run(f, 1);
+    afford = f.canAfford(BT.PUMP) && f.canAfford(BT.SAWMILL);
+  }
+  assert.ok(afford, "насос и лесопилка недостижимы: склад " + JSON.stringify(f.stock));
 }
 
 // ---- случайная игра со всей энергетикой: учёт сходится, значения в границах ----

@@ -17,6 +17,10 @@ export const LAMP = {
   nofuel: 0xf2c74a,
   noinput: 0xf2c74a,
   unplugged: 0xf2c74a,
+  happy: 0x6fdc6f,
+  needwater: 0xf2c74a,
+  needplank: 0xf2c74a,
+  needboth: 0xe0524a,
 };
 // Цвета готовых предметов для панели и рецептов: [верх, бок].
 export const ITEM_COLORS = {

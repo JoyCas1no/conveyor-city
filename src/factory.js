@@ -1,6 +1,7 @@
 // Симуляция завода: бур, конвейер, склад, плавильня, станок, разветвитель. Чистая логика без DOM и Pixi.
 // Направления: 0 = +x (вправо-вниз на экране), 1 = +y (влево-вниз), 2 = -x (влево-вверх), 3 = -y (вправо-вверх).
 import { tileAt, T } from "./worldgen.js";
+import { contractAt, openIds, GATED } from "./contracts.js";
 
 export const DIRS = [[1, 0], [0, 1], [-1, 0], [0, -1]];
 export const TICK = 0.05; // секунд на один шаг симуляции (20 в секунду)
@@ -21,7 +22,26 @@ export const BT = {
   POLE: "pole",
   POWERPLANT: "powerplant",
   SOLAR: "solar",
+  SAWMILL: "sawmill",
+  PUMP: "pump",
+  HOUSE: "house",
+  SHOP: "shop",
+  PARK: "park",
 };
+// Город. Лесопилка: доска за 3 с, нужен лес (3+ клетки в радиусе 2). Насос: вода за 2 с, нужна вода среди 8 соседей.
+export const SAWMILL_PERIOD = 3;
+export const PUMP_PERIOD = 2;
+export const HOUSE_CAP = 4; // жителей в доме
+export const GROW_TICKS = Math.round(30 / TICK); // новый житель каждые 30 с, пока дом доволен
+export const WATER_TICKS = Math.round(20 / TICK); // одна вода покрывает 20 с
+export const PLANK_TICKS = Math.round(60 / TICK); // одна доска покрывает 60 с (дом и парк)
+export const SHOP_TICKS = Math.round(30 / TICK); // один товар покрывает магазин на 30 с
+export const CITY_BUFFER = 2; // запас каждой потребности
+export const TAX_PER_MIN = 10; // налог довольного дома с жителями, монет в минуту
+export const SHOP_BONUS = 0.5; // магазин в радиусе: +50% (один раз, сколько бы ни было)
+export const PARK_BONUS = 0.25; // парк в радиусе: +25% (один раз)
+export const CITY_RADIUS = 6; // радиус влияния магазина и парка на дом (по расстоянию между клетками)
+export const START_COINS = 100;
 // Энергия (условные «ед.»): расход станка и плавильни, выработка электростанции и солнечной панели.
 export const POWER = { constructor: 5, smelter: 4, plant: 30, solar: 6 };
 export const POLE_RADIUS = 4; // здание подключается, если столб не дальше 4 клеток (по расстоянию между клетками)
@@ -29,10 +49,10 @@ export const POLE_LINK = 8; // столбы тянут линии друг к д
 export const BURN_TICKS = Math.round(10 / TICK); // один уголь горит 10 секунд полной нагрузки
 export const PLANT_COAL_CAP = 4;
 // Эти здания не поворачиваются (нет передней стороны).
-export const FIXED = new Set([BT.STORAGE, BT.SPLITTER, BT.POLE, BT.POWERPLANT, BT.SOLAR]);
+export const FIXED = new Set([BT.STORAGE, BT.SPLITTER, BT.POLE, BT.POWERPLANT, BT.SOLAR, BT.HOUSE, BT.SHOP, BT.PARK]);
 export const MACHINES = [BT.SMELTER, BT.CONSTRUCTOR];
 export const ORE_ITEM = { 1: "iron_ore", 2: "copper_ore", 3: "coal" };
-export const ITEMS = ["iron_ore", "copper_ore", "coal", "iron_ingot", "copper_ingot", "iron_plate", "gear", "copper_wire"];
+export const ITEMS = ["iron_ore", "copper_ore", "coal", "iron_ingot", "copper_ingot", "iron_plate", "gear", "copper_wire", "plank", "water"];
 export const SMELT = { iron_ore: "iron_ingot", copper_ore: "copper_ingot" };
 export const RECIPES = {
   plate: { in: "iron_ingot", out: "iron_plate", ticks: Math.round(2 / TICK) },
@@ -48,12 +68,38 @@ export const COSTS = {
   pole: { iron_ingot: 1 },
   powerplant: { iron_ingot: 20, copper_ingot: 5 },
   solar: { iron_plate: 5, gear: 5, copper_wire: 5 },
+  sawmill: { iron_ingot: 10 },
+  pump: { iron_ingot: 10, iron_plate: 5 },
+  house: { coins: 30, plank: 10 },
+  shop: { coins: 60, plank: 8, gear: 5 },
+  park: { coins: 40, plank: 10 },
 };
-const CODE = { belt: "b", miner: "m", storage: "s", smelter: "f", constructor: "c", splitter: "p", pole: "l", powerplant: "g", solar: "o" };
-const TYPE_OF = { b: BT.BELT, m: BT.MINER, s: BT.STORAGE, f: BT.SMELTER, c: BT.CONSTRUCTOR, p: BT.SPLITTER, l: BT.POLE, g: BT.POWERPLANT, o: BT.SOLAR };
+const CODE = { belt: "b", miner: "m", storage: "s", smelter: "f", constructor: "c", splitter: "p", pole: "l", powerplant: "g", solar: "o", sawmill: "w", pump: "u", house: "h", shop: "k", park: "r" };
+const TYPE_OF = { b: BT.BELT, m: BT.MINER, s: BT.STORAGE, f: BT.SMELTER, c: BT.CONSTRUCTOR, p: BT.SPLITTER, l: BT.POLE, g: BT.POWERPLANT, o: BT.SOLAR, w: BT.SAWMILL, u: BT.PUMP, h: BT.HOUSE, k: BT.SHOP, r: BT.PARK };
 
 // Попадает ли здание со смещением (dx, dy) от столба в радиус подключения.
 export const inPoleRange = (dx, dy) => dx * dx + dy * dy <= POLE_RADIUS * POLE_RADIUS;
+// Влияет ли здание в (dx, dy) от дома: магазин или парк в радиусе 6.
+export const inCityRange = (dx, dy) => dx * dx + dy * dy <= CITY_RADIUS * CITY_RADIUS;
+
+// Места для лесопилки и насоса: функции карты (как руда у бура).
+export function sawmillSite(x, y, seed) {
+  let n = 0;
+  for (let dy = -2; dy <= 2; dy++) {
+    for (let dx = -2; dx <= 2; dx++) {
+      if (dx * dx + dy * dy <= 4 && tileAt(x + dx, y + dy, seed).type === T.FOREST) n++;
+    }
+  }
+  return n >= 3;
+}
+export function pumpSite(x, y, seed) {
+  for (let dy = -1; dy <= 1; dy++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      if ((dx || dy) && tileAt(x + dx, y + dy, seed).type === T.WATER) return true;
+    }
+  }
+  return false;
+}
 export const SAVE_VERSION = 1;
 
 const key = (x, y) => x + "," + y;
@@ -87,6 +133,11 @@ export class Factory {
     this.produced = 0; // сколько руды добыто бурами
     this.lost = 0; // зарезервировано: предметы не теряются, снос возвращает всё на склад
     this.grid = { supply: 0, demand: 0, ratio: 1, solar: 0, plants: 0 }; // энергосеть: выработка, спрос, доля обеспечения
+    this.coins = START_COINS; // целые монеты; налог копится в taxFrac и переходит сюда целыми
+    this.taxFrac = 0;
+    this.events = []; // события монет для интерфейса: {delta, why}
+    this.done = new Set(); // номера выполненных контрактов
+    this.city = { pop: 0, houses: 0, happy: 0, tax: 0, shops: 0, parks: 0 };
     this.tickCount = 0;
     this.rev = 0; // растёт при любом изменении состава построек
     this.dirty = new Set(); // ключи клеток, изменённых с прошлой отрисовки
@@ -112,10 +163,32 @@ export class Factory {
     const out = {};
     if (!cost) return out;
     for (const t of Object.keys(cost)) {
-      const lack = cost[t] - (this.stock[t] || 0);
+      const lack = cost[t] - (t === "coins" ? this.coins : this.stock[t] || 0);
       if (lack > 0) out[t] = lack;
     }
     return out;
+  }
+
+  // Меняет монеты и записывает событие для интерфейса («−30» при оплате, «+100» награда).
+  _coin(delta, why) {
+    if (!delta) return;
+    this.coins += delta;
+    this.events.push({ delta, why });
+  }
+
+  takeEvents() {
+    const e = this.events;
+    this.events = [];
+    return e;
+  }
+
+  // Закрыта ли постройка контрактом (магазин, парк).
+  isLocked(type) {
+    return Object.hasOwn(GATED, type) && !this.done.has(GATED[type]); // hasOwn: иначе «constructor» попадает в прототип
+  }
+
+  lockInfo(type) {
+    return Object.hasOwn(GATED, type) ? { index: GATED[type], title: contractAt(GATED[type]).title } : null;
   }
 
   canAfford(type) {
@@ -129,6 +202,9 @@ export class Factory {
     const ex = this.get(x, y);
     if (ex && !(type === BT.BELT && ex.type === BT.BELT)) return { ok: false, reason: "occupied" };
     if (type === BT.MINER && !t.ore) return { ok: false, reason: "noore" };
+    if (type === BT.SAWMILL && !sawmillSite(x, y, this.seed)) return { ok: false, reason: "noforest" };
+    if (type === BT.PUMP && !pumpSite(x, y, this.seed)) return { ok: false, reason: "nowater" };
+    if (!ex && this.isLocked(type)) return { ok: false, reason: "locked" };
     if (!ex) {
       const missing = this.missing(type);
       if (Object.keys(missing).length) return { ok: false, reason: "cost", missing };
@@ -147,8 +223,11 @@ export class Factory {
     const cost = COSTS[type];
     if (cost) {
       for (const t of Object.keys(cost)) {
-        this.stock[t] -= cost[t];
-        this._add(this.sunk, t, cost[t]);
+        if (t === "coins") this._coin(-cost[t], "build");
+        else {
+          this.stock[t] -= cost[t];
+          this._add(this.sunk, t, cost[t]);
+        }
       }
     }
     const b = this._make(type, x, y, dir);
@@ -199,6 +278,28 @@ export class Factory {
       b.pw = false;
     }
     if (type === BT.SOLAR) b.pw = false;
+    if (type === BT.SAWMILL || type === BT.PUMP) {
+      b.res = type === BT.SAWMILL ? sawmillSite(x, y, this.seed) : pumpSite(x, y, this.seed); // как руда у бура
+      b.prog = 0;
+      b.out = null;
+      b.blocked = false;
+    }
+    if (type === BT.HOUSE) {
+      b.pop = 0; // жителей
+      b.grow = 0;
+      b.bw = 0; // вода во входе
+      b.bp = 0; // доски во входе
+      b.lw = 0; // сколько шагов ещё покрыта потребность в воде
+      b.lp = 0; // и в досках
+    }
+    if (type === BT.SHOP) {
+      b.items = []; // шестерёнки и провода во входе
+      b.left = 0;
+    }
+    if (type === BT.PARK) {
+      b.buf = 0;
+      b.left = 0;
+    }
     return b;
   }
 
@@ -247,6 +348,13 @@ export class Factory {
     }
     if (b.type === BT.SPLITTER && b.item) give(b.item);
     if (b.type === BT.POWERPLANT) give("coal", b.coal + (b.burning ? 1 : 0));
+    if ((b.type === BT.SAWMILL || b.type === BT.PUMP) && b.out) give(b.out);
+    if (b.type === BT.HOUSE) {
+      if (b.bw) give("water", b.bw);
+      if (b.bp) give("plank", b.bp);
+    }
+    if (b.type === BT.SHOP) for (const it of b.items) give(it);
+    if (b.type === BT.PARK && b.buf) give("plank", b.buf);
   }
 
   // Снос возвращает цену и всё, что было внутри.
@@ -257,8 +365,11 @@ export class Factory {
     const cost = COSTS[b.type];
     if (cost) {
       for (const t of Object.keys(cost)) {
-        this._add(this.stock, t, cost[t]);
-        this._add(this.created, t, cost[t]);
+        if (t === "coins") this._coin(cost[t], "refund");
+        else {
+          this._add(this.stock, t, cost[t]);
+          this._add(this.created, t, cost[t]);
+        }
       }
     }
     this.map.delete(key(x, y));
@@ -273,7 +384,7 @@ export class Factory {
 
   _lists() {
     if (this._listRev !== this.rev) {
-      const L = { belts: [], miners: [], smelters: [], constructors: [], splitters: [], poles: [], plants: [], solars: [] };
+      const L = { belts: [], miners: [], smelters: [], constructors: [], splitters: [], poles: [], plants: [], solars: [], sawmills: [], pumps: [], houses: [], shops: [], parks: [] };
       for (const b of this.map.values()) {
         if (b.pw !== undefined) b.pw = false;
         if (b.type === BT.BELT) L.belts.push(b);
@@ -284,6 +395,11 @@ export class Factory {
         else if (b.type === BT.POLE) L.poles.push(b);
         else if (b.type === BT.POWERPLANT) L.plants.push(b);
         else if (b.type === BT.SOLAR) L.solars.push(b);
+        else if (b.type === BT.SAWMILL) L.sawmills.push(b);
+        else if (b.type === BT.PUMP) L.pumps.push(b);
+        else if (b.type === BT.HOUSE) L.houses.push(b);
+        else if (b.type === BT.SHOP) L.shops.push(b);
+        else if (b.type === BT.PARK) L.parks.push(b);
       }
       const R = POLE_RADIUS;
       for (const p of L.poles) {
@@ -383,9 +499,137 @@ export class Factory {
           return true;
         }
         return false;
+      case BT.HOUSE:
+        if (item === "water" && target.bw < CITY_BUFFER) {
+          target.bw++;
+          return true;
+        }
+        if (item === "plank" && target.bp < CITY_BUFFER) {
+          target.bp++;
+          return true;
+        }
+        return false;
+      case BT.SHOP:
+        if ((item === "gear" || item === "copper_wire") && target.items.length < CITY_BUFFER) {
+          target.items.push(item);
+          return true;
+        }
+        return false;
+      case BT.PARK:
+        if (item === "plank" && target.buf < CITY_BUFFER) {
+          target.buf++;
+          return true;
+        }
+        return false;
       default:
         return false;
     }
+  }
+
+  // Лесопилка и насос: как бур, только вид предмета и период свои. Без места (лес, вода) стоят.
+  _produce(m, kind, period) {
+    if (!m.res) return;
+    if (!m.out) {
+      m.prog += TICK;
+      if (m.prog >= period) {
+        m.out = kind;
+        m.prog = 0;
+        this._add(this.created, kind);
+      }
+    }
+    if (m.out) this._pushOut(m);
+  }
+
+  // Жизнь города: потребности домов, магазинов, парков; рост жителей; налог (целыми монетами).
+  _city(L) {
+    const need = (b, bufKey, leftKey, period, sinkItem) => {
+      if (b[leftKey] <= 0 && b[bufKey] > 0) {
+        b[bufKey]--;
+        b[leftKey] = period;
+        this._add(this.sunk, sinkItem);
+      }
+      if (b[leftKey] > 0) b[leftKey]--;
+    };
+    let shops = 0;
+    for (const s of L.shops) {
+      if (s.left <= 0 && s.items.length > 0) {
+        this._add(this.sunk, s.items.shift());
+        s.left = SHOP_TICKS;
+      }
+      if (s.left > 0) s.left--;
+      if (s.left > 0) shops++;
+    }
+    let parks = 0;
+    for (const k of L.parks) {
+      need(k, "buf", "left", PLANK_TICKS, "plank");
+      if (k.left > 0) parks++;
+    }
+    let pop = 0;
+    let happy = 0;
+    let tax = 0;
+    for (const h of L.houses) {
+      need(h, "bw", "lw", WATER_TICKS, "water");
+      need(h, "bp", "lp", PLANK_TICKS, "plank");
+      pop += h.pop;
+      if (!(h.lw > 0 && h.lp > 0)) continue;
+      happy++;
+      if (h.pop < HOUSE_CAP) {
+        h.grow++;
+        if (h.grow >= GROW_TICKS) {
+          h.pop++;
+          h.grow = 0;
+          this.rev++; // картинка дома зависит от числа жителей
+          this.dirty.add(key(h.x, h.y));
+        }
+      }
+      if (h.pop <= 0) continue;
+      let shopNear = false;
+      for (const s of L.shops) {
+        if (s.left > 0 && inCityRange(s.x - h.x, s.y - h.y)) {
+          shopNear = true;
+          break;
+        }
+      }
+      let parkNear = false;
+      for (const k of L.parks) {
+        if (k.left > 0 && inCityRange(k.x - h.x, k.y - h.y)) {
+          parkNear = true;
+          break;
+        }
+      }
+      const rate = TAX_PER_MIN * (1 + (shopNear ? SHOP_BONUS : 0) + (parkNear ? PARK_BONUS : 0));
+      tax += rate;
+      this.taxFrac += rate / 1200; // 1200 шагов в минуте
+    }
+    if (this.taxFrac >= 1) {
+      const whole = Math.floor(this.taxFrac);
+      this.taxFrac -= whole;
+      this._coin(whole, "tax");
+    }
+    this.city = { pop, houses: L.houses.length, happy, tax, shops, parks };
+  }
+
+  // ---- контракты: до 3 открытых; сдаются со склада ----
+  contracts() {
+    return openIds(this.done).map((id) => {
+      const c = contractAt(id);
+      const progress = Object.entries(c.need).map(([k, n]) => ({ key: k, need: n, have: k === "residents" ? this.city.pop : this.stock[k] || 0 }));
+      return { ...c, progress, ready: progress.every((q) => q.have >= q.need) };
+    });
+  }
+
+  // Сдача: предметы списываются со склада, жители остаются; награда монетами, может открыться постройка.
+  deliver(id) {
+    const c = this.contracts().find((q) => q.id === id);
+    if (!c || !c.ready) return false;
+    for (const [k, n] of Object.entries(c.need)) {
+      if (k === "residents") continue;
+      this.stock[k] -= n;
+      this._add(this.sunk, k, n);
+    }
+    this._coin(c.coins, "reward");
+    this.done.add(id);
+    return true;
   }
 
   _pushOut(m) {
@@ -399,7 +643,7 @@ export class Factory {
   tick() {
     this.tickCount++;
     const L = this._lists();
-    const { belts, miners, smelters, constructors, splitters } = L;
+    const { belts, miners, smelters, constructors, splitters, sawmills, pumps } = L;
     this._grid(L);
     const ratio = this.grid.ratio;
 
@@ -417,6 +661,9 @@ export class Factory {
       }
       if (m.out) this._pushOut(m);
     }
+
+    for (const m of sawmills) this._produce(m, "plank", SAWMILL_PERIOD);
+    for (const m of pumps) this._produce(m, "water", PUMP_PERIOD);
 
     for (const m of smelters) {
       const power = m.pw && ratio > 0;
@@ -492,6 +739,8 @@ export class Factory {
       }
     }
 
+    this._city(L);
+
     for (const b of belts) {
       const it = b.item;
       if (!it) continue;
@@ -538,6 +787,17 @@ export class Factory {
       case BT.POWERPLANT:
         if (b.burning) return b.frac > 0 ? "work" : "idle";
         return b.coal > 0 ? "idle" : "nofuel";
+      case BT.SAWMILL:
+      case BT.PUMP:
+        return !b.res ? "idle" : b.blocked ? "blocked" : "work";
+      case BT.HOUSE: {
+        const w = b.lw > 0;
+        const q = b.lp > 0;
+        return w && q ? "happy" : !w && !q ? "needboth" : !w ? "needwater" : "needplank";
+      }
+      case BT.SHOP:
+      case BT.PARK:
+        return b.left > 0 ? "work" : "noinput";
       default:
         return "work";
     }
@@ -563,6 +823,13 @@ export class Factory {
       }
       if (b.type === BT.SPLITTER && b.item) this._add(inside, b.item);
       if (b.type === BT.POWERPLANT && b.coal + (b.burning ? 1 : 0)) this._add(inside, "coal", b.coal + (b.burning ? 1 : 0));
+      if ((b.type === BT.SAWMILL || b.type === BT.PUMP) && b.out) this._add(inside, b.out);
+      if (b.type === BT.HOUSE) {
+        if (b.bw) this._add(inside, "water", b.bw);
+        if (b.bp) this._add(inside, "plank", b.bp);
+      }
+      if (b.type === BT.SHOP) for (const it of b.items) this._add(inside, it);
+      if (b.type === BT.PARK && b.buf) this._add(inside, "plank", b.buf);
     }
     let ok = true;
     const bad = [];
@@ -584,7 +851,7 @@ export class Factory {
       if (b.type === BT.CONSTRUCTOR) e.push(b.recipe);
       buildings.push(e);
     }
-    return { v: SAVE_VERSION, seed: this.seed, buildings, stock: { ...this.stock } };
+    return { v: SAVE_VERSION, seed: this.seed, buildings, stock: { ...this.stock }, coins: Math.floor(this.coins), done: [...this.done] };
   }
 
   // Загрузка без проверки canPlace: генерация мира могла измениться. Возвращает число построек или -1.
@@ -611,6 +878,11 @@ export class Factory {
       }
     }
     for (const k of Object.keys(this.stock)) this.created[k] = this.stock[k]; // учёт продолжается со склада
+    this.coins = Number.isFinite(data.coins) && data.coins >= 0 ? Math.floor(data.coins) : START_COINS; // старые сохранения: стартовые монеты
+    this.taxFrac = 0;
+    this.events = [];
+    this.done = new Set(Array.isArray(data.done) ? data.done.filter((i) => Number.isInteger(i) && i >= 0) : []);
+    this.city = { pop: 0, houses: 0, happy: 0, tax: 0, shops: 0, parks: 0 };
     this.produced = 0;
     this.lost = 0;
     this.rev++;
