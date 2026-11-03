@@ -1,12 +1,15 @@
 // Ввод: мышь, касания, колёсико, клавиатура. Только Pointer Events, один код для ПК, телефона и планшета.
+// Режим «рука»: один палец или левая кнопка двигают карту. С выбранной постройкой один палец или левая кнопка
+// строят (штрих), а карту двигают двумя пальцами, правой или средней кнопкой, клавишами WASD.
 import { panBy, zoomAt } from "./camera.js";
 
 const TAP_SLOP = 8; // px: сдвиг меньше этого считается касанием, а не перетаскиванием
 
-export function attachInput(el, cam, { size, onChange, onTap, onHover }) {
+export function attachInput(el, cam, { size, onChange, onTap, onHover, build }) {
   const pts = new Map();
+  let gesture = null; // "pan" | "build" | "pinch"
   let travelled = 0;
-  let wasPinch = false;
+  let downButton = 0;
   const keys = new Set();
 
   const pos = (e) => {
@@ -23,16 +26,24 @@ export function attachInput(el, cam, { size, onChange, onTap, onHover }) {
   };
 
   el.addEventListener("pointerdown", (e) => {
-    pts.set(e.pointerId, pos(e));
+    const p = pos(e);
+    pts.set(e.pointerId, p);
     try {
       el.setPointerCapture(e.pointerId);
     } catch {
       // захват не обязателен: без него касание всё равно работает, пока палец над полем
     }
-    if (pts.size === 1) {
-      travelled = 0;
-      wasPinch = false;
-    } else wasPinch = true;
+    if (pts.size >= 2) {
+      if (gesture === "build") build.cancel(); // второй палец: это щипок, а не стройка
+      gesture = "pinch";
+      return;
+    }
+    travelled = 0;
+    downButton = e.pointerType === "mouse" ? e.button : 0;
+    if (build.active() && downButton === 0) {
+      gesture = "build";
+      build.down(p.x, p.y);
+    } else gesture = "pan";
   });
 
   el.addEventListener("pointermove", (e) => {
@@ -43,12 +54,16 @@ export function attachInput(el, cam, { size, onChange, onTap, onHover }) {
     }
     const prev = pts.get(e.pointerId);
     if (pts.size === 1) {
+      pts.set(e.pointerId, p);
+      if (gesture === "build") {
+        build.move(p.x, p.y);
+        return;
+      }
       travelled += Math.hypot(p.x - prev.x, p.y - prev.y);
       if (travelled > TAP_SLOP) {
         panBy(cam, p.x - prev.x, p.y - prev.y);
         onChange();
       }
-      pts.set(e.pointerId, p);
     } else if (pts.size === 2) {
       const d0 = dist();
       const m0 = mid();
@@ -67,8 +82,19 @@ export function attachInput(el, cam, { size, onChange, onTap, onHover }) {
     const p = pos(e);
     const wasOnly = pts.size === 1;
     pts.delete(e.pointerId);
-    if (wasOnly && !wasPinch && travelled <= TAP_SLOP && e.type === "pointerup") onTap?.(p.x, p.y);
-    if (pts.size === 1) travelled = TAP_SLOP + 1; // после щипка остаток пальца не должен считаться касанием
+    if (gesture === "build") {
+      if (e.type === "pointercancel") build.cancel();
+      else build.up(p.x, p.y);
+      gesture = null;
+      return;
+    }
+    if (wasOnly) {
+      if (gesture === "pan" && downButton === 0 && travelled <= TAP_SLOP && e.type === "pointerup") onTap?.(p.x, p.y);
+      gesture = null;
+    } else if (pts.size === 1) {
+      gesture = "pan"; // остался один палец после щипка: он двигает карту, но не строит
+      travelled = TAP_SLOP + 1;
+    }
   };
   el.addEventListener("pointerup", end);
   el.addEventListener("pointercancel", end);

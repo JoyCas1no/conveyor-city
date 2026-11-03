@@ -18,3 +18,13 @@ export function pickTile(sx, sy) {
   const t = screenToTile(sx, sy);
   return { x: Math.floor(t.x), y: Math.floor(t.y) };
 }
+
+// Выбор клетки с учётом высоты скал (высоты кратны 4, от 12 до 36 px): верх скалы сдвинут вверх по экрану,
+// поэтому ищем клетку, чей поднятый верх содержит точку; иначе клетка на земле.
+export function pickTileRaised(sx, sy, heightAt) {
+  for (let h = 36; h >= 12; h -= 4) {
+    const t = pickTile(sx, sy + h);
+    if (heightAt(t.x, t.y) === h) return t;
+  }
+  return pickTile(sx, sy);
+}
