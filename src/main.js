@@ -9,6 +9,7 @@ import { tileAt } from "./worldgen.js";
 import { Factory, BT, TICK, COSTS, FUEL_CAP, RECIPE_ORDER, FIXED, POLE_RADIUS, inPoleRange } from "./factory.js";
 import { Builder, BUILD_TOOLS } from "./builder.js";
 import { UNLOCK_AT } from "./contracts.js";
+import { isUpgradable } from "./upgrades.js";
 import { drawGhost, drawRing, drawTileOutline } from "./buildingdraw.js";
 import { readSave, writeSave, readLastSeed, writeLastSeed, sanitizeCam } from "./save.js";
 import { PAL } from "./palette.js";
@@ -56,7 +57,7 @@ function lockText(tool) {
 }
 
 function buildingText(b) {
-  let s = STR.building[b.type];
+  let s = STR.building[b.type] + (isUpgradable(b.type) ? ` Mk${b.lvl}` : "");
   if (b.type === BT.POLE) return `${s} · ${STR.pole.connects}: ${poleTargets(b.x, b.y).length}`;
   if (b.type === BT.POWERPLANT) return `${s} · ${STR.status.unplugged && !b.pw ? STR.status.unplugged : STR.plantStatus[factory.status(b)]} · ${STR.coal} ${b.coal}/4`;
   if (b.type === BT.SOLAR) return `${s} · ${b.pw ? STR.status.work : STR.status.unplugged}`;
@@ -105,6 +106,17 @@ async function start() {
   world.addChild(fl.container);
   const mark = new Graphics();
   world.addChild(mark);
+  const fxLayer = new Container(); // всплывающие значки (улучшение)
+  world.addChild(fxLayer);
+  const fx = [];
+  function spawnFx(x, y) {
+    const g = new Graphics();
+    const c = tileToScreen(x + 0.5, y + 0.5);
+    g.poly([0, -16, 9, -4, 3.5, -4, 3.5, 6, -3.5, 6, -3.5, -4, -9, -4]).fill(0xffd23f).stroke({ width: 1.4, color: 0x8a5a00 });
+    g.position.set(c.x, c.y - 34);
+    fxLayer.addChild(g);
+    fx.push({ g, age: 0 });
+  }
 
   const builder = new Builder(factory);
   const size = () => ({ w: app.screen.width, h: app.screen.height });
@@ -165,6 +177,7 @@ async function start() {
         refreshCity();
       }
     },
+    onUpgrade: () => doUpgrade(),
     onRecipe: (id) => {
       if (selected && factory.setRecipe(selected.x, selected.y, id)) {
         hud.setTile(tileText(selected.x, selected.y));
@@ -191,12 +204,43 @@ async function start() {
     onRotate: () => rotate(),
   });
 
-  // Панель рецептов показывается, когда в режиме руки выбран станок.
-  function showRecipePanel() {
+  // Панель здания: в режиме руки у станка рецепты, у любого улучшаемого здания улучшение Mk1-Mk3.
+  let panelSig = "";
+  function showRecipePanel(force = true) {
     const b = selected && factory.get(selected.x, selected.y);
-    if (b && b.type === BT.CONSTRUCTOR && !builder.active) {
-      hud.showRecipes(RECIPE_ORDER.map((id) => ({ id, name: STR.recipes[id].name, desc: STR.recipes[id].desc })), b.recipe);
-    } else hud.hideRecipes();
+    if (!b || builder.active || (b.type !== BT.CONSTRUCTOR && !isUpgradable(b.type))) {
+      panelSig = "";
+      return hud.hideRecipes();
+    }
+    const recipes = b.type === BT.CONSTRUCTOR ? RECIPE_ORDER.map((id) => ({ id, name: STR.recipes[id].name, desc: STR.recipes[id].desc })) : null;
+    let upgrade = null;
+    if (isUpgradable(b.type)) {
+      const c = factory.canUpgrade(b.x, b.y);
+      upgrade = { now: `${STR.building[b.type]} Mk${b.lvl}` };
+      if (c.reason === "max") upgrade.maxed = true;
+      else {
+        upgrade.level = c.level;
+        upgrade.effect = STR.upgrade.effect[b.type][c.level];
+        upgrade.cost = costText(c.cost);
+        upgrade.ok = c.ok;
+        upgrade.why = c.reason === "cost" ? missingText(c.missing) : c.reason === "locked" ? `${STR.upgrade.reason.locked} «${c.lock.title}»` : "";
+      }
+    }
+    const sig = JSON.stringify([b.x, b.y, b.lvl, b.recipe, upgrade]);
+    if (!force && sig === panelSig) return; // ничего не изменилось: не перерисовываем кнопки
+    panelSig = sig;
+    hud.showBuilding({ recipes, current: b.recipe, upgrade });
+  }
+
+  function doUpgrade() {
+    if (!selected || builder.active) return;
+    if (factory.upgrade(selected.x, selected.y)) {
+      const b = factory.get(selected.x, selected.y);
+      hud.toast(`${STR.upgrade.done} Mk${b.lvl}`);
+      spawnFx(selected.x, selected.y);
+      hud.setTile(tileText(selected.x, selected.y));
+      showRecipePanel();
+    }
   }
 
   // Окно «Город»: данные города и открытых контрактов.
@@ -232,6 +276,7 @@ async function start() {
     const map = { Digit1: "miner", Digit2: "belt", Digit3: "storage", Digit4: "erase", Digit5: "smelter", Digit6: "constructor", Digit7: "splitter", Digit8: "pole", Digit9: "powerplant", Digit0: "solar", KeyX: "erase" };
     if (map[e.code]) setTool(builder.tool === map[e.code] ? "hand" : map[e.code]);
     else if (e.code === "KeyR") rotate();
+    else if (e.code === "KeyU") doUpgrade();
     else if (e.code === "Escape") setTool("hand");
   });
 
@@ -294,6 +339,16 @@ async function start() {
   let statTimer = 0;
   app.ticker.add((tk) => {
     applyKeys(tk.deltaMS);
+    for (let i = fx.length - 1; i >= 0; i--) {
+      const e = fx[i];
+      e.age += tk.deltaMS / 1000;
+      e.g.y -= (40 * tk.deltaMS) / 1000;
+      e.g.alpha = Math.max(0, 1 - e.age / 1.1);
+      if (e.age >= 1.1) {
+        e.g.destroy();
+        fx.splice(i, 1);
+      }
+    }
     acc += Math.min(tk.deltaMS / 1000, 0.25);
     let steps = 0;
     while (acc >= TICK && steps < 8) {
@@ -328,6 +383,7 @@ async function start() {
       }
       hud.setCoins(factory.coins, factory.city.pop);
       if (hud.isCityOpen()) refreshCity();
+      if (hud.isInspectOpen()) showRecipePanel(false); // цена и наличие меняются: обновляем кнопку, только если что-то изменилось
       hud.setStats(`${Math.round(app.ticker.FPS)} fps · кусков ${chunks.count} · построек ${factory.count} · x${cam.zoom.toFixed(2)}`);
       if (selected && !builder.active) hud.setTile(tileText(selected.x, selected.y));
     }

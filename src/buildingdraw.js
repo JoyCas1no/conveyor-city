@@ -220,6 +220,10 @@ export function drawPowerPlant(g, b, st = "work") {
   // труба в два цвета
   cube(g, cx - hw * 0.3, cy - h - 1, HW * 0.2, HH * 0.2, 12, 0xeeeeef, 0xc6c6cc, 0xaaaab0);
   cube(g, cx - hw * 0.3, cy - h - 13, HW * 0.2, HH * 0.2, 10, 0xd8584a, 0xb04236, 0x923529);
+  if ((b.lvl || 1) >= 2) {
+    cube(g, cx - hw * 0.3 + 12, cy - h + 2, HW * 0.16, HH * 0.16, 9, 0xeeeeef, 0xc6c6cc, 0xaaaab0); // вторая труба
+    cube(g, cx - hw * 0.3 + 12, cy - h - 7, HW * 0.16, HH * 0.16, 7, 0xd8584a, 0xb04236, 0x923529);
+  }
   if (st === "work") {
     g.ellipse(cx - hw * 0.3 + 1, cy - h - 31, 5.5, 3.6).fill({ color: 0xd9dbe0, alpha: 0.5 });
     g.ellipse(cx - hw * 0.3 + 4, cy - h - 39, 4.5, 3).fill({ color: 0xd9dbe0, alpha: 0.3 });
@@ -334,22 +338,30 @@ export function drawPump(g, b, st = "work") {
 }
 
 // Дом: беленые стены, красная пирамидальная крыша, окна светятся у довольных, пузырёк у недовольных.
+// Уровень даёт этажи: Mk2 второй, Mk3 третий с золотым балконом и флажком.
 export function drawHouse(g, b, st = "happy") {
   const { x: cx, y: cy } = centerOf(b);
   const hw = HW * 0.74;
   const hh = HH * 0.74;
-  const h = 14;
-  shadow(g, cx, cy);
-  cube(g, cx, cy, hw, hh, h, 0xe9dcc0, 0xdccba4, 0xc2b08a);
-  // окна и дверь
+  const fh = 14;
+  const floors = Math.min(3, Math.max(1, b.lvl || 1));
   const lit = st === "happy" ? 0xffe28a : 0x59616b;
-  g.poly([cx - hw * 0.72, cy + hh * 0.28 - 5, cx - hw * 0.3, cy + hh * 0.72 - 5, cx - hw * 0.3, cy + hh * 0.72 - 10, cx - hw * 0.72, cy + hh * 0.28 - 10]).fill(lit);
-  g.poly([cx + hw * 0.3, cy + hh * 0.7 - 5, cx + hw * 0.7, cy + hh * 0.3 - 5, cx + hw * 0.7, cy + hh * 0.3 - 10, cx + hw * 0.3, cy + hh * 0.7 - 10]).fill(lit);
-  g.poly([cx + hw * 0.05, cy + hh * 0.95 - 1, cx + hw * 0.22, cy + hh * 0.83 - 1, cx + hw * 0.22, cy + hh * 0.83 - 8, cx + hw * 0.05, cy + hh * 0.95 - 8]).fill(0x7a4e2d);
+  shadow(g, cx, cy);
+  for (let i = 0; i < floors; i++) {
+    const base = cy - fh * i;
+    cube(g, cx, base, hw, hh, fh, 0xe9dcc0, 0xdccba4, 0xc2b08a);
+    g.poly([cx - hw * 0.72, base + hh * 0.28 - 5, cx - hw * 0.3, base + hh * 0.72 - 5, cx - hw * 0.3, base + hh * 0.72 - 10, cx - hw * 0.72, base + hh * 0.28 - 10]).fill(lit);
+    g.poly([cx + hw * 0.3, base + hh * 0.7 - 5, cx + hw * 0.7, base + hh * 0.3 - 5, cx + hw * 0.7, base + hh * 0.3 - 10, cx + hw * 0.3, base + hh * 0.7 - 10]).fill(lit);
+    if (i === 0) g.poly([cx + hw * 0.05, base + hh * 0.95 - 1, cx + hw * 0.22, base + hh * 0.83 - 1, cx + hw * 0.22, base + hh * 0.83 - 8, cx + hw * 0.05, base + hh * 0.95 - 8]).fill(0x7a4e2d);
+  }
+  if (floors === 3) {
+    const by = cy - fh * 2; // золотой балкон на правой стене третьего этажа
+    g.poly([cx + hw * 0.1, by + hh * 0.92, cx + hw * 0.92, by + hh * 0.1, cx + hw * 0.92, by + hh * 0.1 - 3, cx + hw * 0.1, by + hh * 0.92 - 3]).fill(0xffd23f);
+  }
   // крыша: пирамида
   const rx = hw + 3;
   const ry = hh + 2;
-  const top = cy - h;
+  const top = cy - fh * floors;
   const apex = top - 15;
   g.poly([cx - rx, top, cx, top + ry, cx, apex]).fill(0xc4553f);
   g.poly([cx, top + ry, cx + rx, top, cx, apex]).fill(0x9e4331);
@@ -360,6 +372,10 @@ export function drawHouse(g, b, st = "happy") {
   if (b.pop > 0 && st === "happy") {
     g.ellipse(cx + hw * 0.3 + 2, apex - 6, 3.6, 2.4).fill({ color: 0xd9dbe0, alpha: 0.5 });
     g.ellipse(cx + hw * 0.3 + 5, apex - 12, 3, 2).fill({ color: 0xd9dbe0, alpha: 0.3 });
+  }
+  if (floors === 3) {
+    g.rect(cx - 0.7, apex - 12, 1.4, 12).fill(0x6b5646); // флажок на крыше
+    g.poly([cx + 0.7, apex - 12, cx + 8, apex - 9.5, cx + 0.7, apex - 7]).fill(0xffd23f);
   }
   if (st === "needwater") bubble(g, cx - hw * 0.6, apex - 10, 0x4aa8e0);
   else if (st === "needplank") bubble(g, cx - hw * 0.6, apex - 10, 0xb98a55);
@@ -379,7 +395,7 @@ export function drawShop(g, b, st = "work") {
   for (let i = 0; i < 4; i++) {
     const t1 = 0.1 + i * 0.2;
     const t2 = t1 + 0.2;
-    g.poly([cx + hw * t1, gy(t1) - 5, cx + hw * t2, gy(t2) - 5, cx + hw * t2 + 2, gy(t2) - 1, cx + hw * t1 + 2, gy(t1) - 1]).fill(i % 2 ? 0xffffff : 0xd94a3c);
+    g.poly([cx + hw * t1, gy(t1) - 5, cx + hw * t2, gy(t2) - 5, cx + hw * t2 + 2, gy(t2) - 1, cx + hw * t1 + 2, gy(t1) - 1]).fill(i % 2 ? 0xffffff : (b.lvl || 1) >= 3 ? 0xe0a43a : 0xd94a3c);
   }
   // витрина
   g.poly([cx + hw * 0.2, gy(0.2) - 6, cx + hw * 0.8, gy(0.8) - 6, cx + hw * 0.8, gy(0.8) - 12, cx + hw * 0.2, gy(0.2) - 12]).fill(st === "work" ? 0xffe28a : 0x59616b);
@@ -408,6 +424,14 @@ export function drawPark(g, b, st = "work") {
     g.circle(t.x, t.y - 14 * sc, 8 * sc).fill(0x3d9a4f);
     g.circle(t.x - 2.5, t.y - 16 * sc, 4.5 * sc).fill(0x5cb86a);
   }
+  if ((b.lvl || 1) >= 2) {
+    for (const [dx, dy] of [[-0.38, 0.3], [0.36, -0.28]]) {
+      const lp = S(c[0] + dx, c[1] + dy);
+      g.rect(lp.x - 0.8, lp.y - 12, 1.6, 12).fill(0x4b525b);
+      if (b.lvl === 3) g.circle(lp.x, lp.y - 13, 6).fill({ color: 0xffe28a, alpha: 0.3 });
+      g.circle(lp.x, lp.y - 13, 2.6).fill(b.lvl === 3 ? 0xfff2a8 : 0xe3c36a);
+    }
+  }
   const bn = S(c[0] + 0.12, c[1] - 0.3);
   g.rect(bn.x - 5, bn.y - 5, 10, 2.5).fill(0x8a5e34);
   g.rect(bn.x - 4.5, bn.y - 2.5, 1.6, 3).fill(0x5a3f26);
@@ -427,8 +451,56 @@ export function drawStorage(g, b) {
   g.poly([cx, cy + hh - 12, cx + hw, cy - 12, cx + hw, cy - 14, cx, cy + hh - 14]).fill(0x2c2c30);
 }
 
+// Отделка уровней: Mk2 медная, Mk3 золотая со свечением.
+const MK = { 2: { main: 0xcd7f32, light: 0xf0b070 }, 3: { main: 0xffd23f, light: 0xfff2a8 } };
+const UPGRADABLE_DRAW = new Set([BT.MINER, BT.SAWMILL, BT.PUMP, BT.SMELTER, BT.CONSTRUCTOR, BT.POWERPLANT, BT.HOUSE, BT.SHOP, BT.PARK]);
+const MACHINE_DRAW = new Set([BT.MINER, BT.SAWMILL, BT.PUMP, BT.SMELTER, BT.CONSTRUCTOR, BT.POWERPLANT]);
+// Высота значка над землёй (px) по типу здания.
+const BADGE_UP = { miner: 66, sawmill: 36, pump: 36, smelter: 56, constructor: 44, powerplant: 56, house: 0, shop: 44, park: 40 };
+
+// Значок уровня римскими палочками на тёмной табличке: «II» и «III» видны издали.
+export function drawBadge(g, cx, y, lvl) {
+  const c = MK[lvl];
+  const w = lvl * 4 - 2;
+  g.poly([cx - w / 2 - 3, y - 6, cx + w / 2 + 3, y - 6, cx + w / 2 + 3, y + 6, cx - w / 2 - 3, y + 6]).fill({ color: 0x1b2a33, alpha: 0.94 });
+  g.poly([cx - w / 2 - 3, y + 6, cx + w / 2 + 3, y + 6, cx + w / 2 + 3, y + 4.6, cx - w / 2 - 3, y + 4.6]).fill(c.main);
+  for (let i = 0; i < lvl; i++) g.rect(cx - w / 2 + i * 4, y - 4, 2, 7.6).fill(c.light);
+}
+
+// Под зданием: кольцо у основания (на Mk3 ещё золотое свечение).
+function levelBase(g, b) {
+  const { x: cx, y: cy } = centerOf(b);
+  const c = MK[b.lvl];
+  if (b.lvl === 3) g.ellipse(cx, cy + 2, HW * 1.02, HH * 1.02).fill({ color: 0xffd23f, alpha: 0.2 });
+  g.ellipse(cx, cy + 2, HW * 0.94, HH * 0.94).stroke({ width: 2.4, color: c.main, alpha: 0.95 });
+}
+
+// Поверх здания: у машин две трубы по углам основания, значок над зданием.
+function levelTop(g, b) {
+  const { x: cx, y: cy } = centerOf(b);
+  const c = MK[b.lvl];
+  if (MACHINE_DRAW.has(b.type)) {
+    for (const sx of [-1, 1]) {
+      const px = cx + sx * HW * 0.84;
+      g.rect(px - 1.9, cy - 11, 3.8, 11).fill(c.main);
+      g.rect(px - 1.9, cy - 11, 1.4, 11).fill({ color: c.light, alpha: 0.85 });
+      if (b.lvl === 3) g.circle(px, cy - 12, 5).fill({ color: 0xffe28a, alpha: 0.35 });
+      g.circle(px, cy - 12, 2.2).fill(c.light);
+    }
+  }
+  const up = b.type === BT.HOUSE ? 14 * Math.min(3, b.lvl) + 30 : BADGE_UP[b.type] || 40;
+  drawBadge(g, cx, cy - up, b.lvl);
+}
+
 // Любое высокое здание по типу. st: состояние (work, blocked, nofuel, ...).
 export function drawTall(g, b, st) {
+  const marked = (b.lvl || 1) >= 2 && UPGRADABLE_DRAW.has(b.type);
+  if (marked) levelBase(g, b);
+  drawTallBase(g, b, st);
+  if (marked) levelTop(g, b);
+}
+
+function drawTallBase(g, b, st) {
   switch (b.type) {
     case BT.MINER:
       return drawMiner(g, b, st);

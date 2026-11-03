@@ -1,6 +1,6 @@
 // Рисование построек и выбор клетки с учётом высоты: без браузера, на «пустом» Graphics.
 import assert from "node:assert/strict";
-import { drawBelt, drawMiner, drawStorage, drawItem, drawGhost, drawSmelter, drawConstructor, drawSplitter, drawTall, drawPole, drawPowerPlant, drawSolar, drawLinks, drawRing, drawTileOutline, drawSawmill, drawPump, drawHouse, drawShop, drawPark, LAMP } from "../src/buildingdraw.js";
+import { drawBelt, drawMiner, drawStorage, drawItem, drawGhost, drawSmelter, drawConstructor, drawSplitter, drawTall, drawPole, drawPowerPlant, drawSolar, drawLinks, drawRing, drawTileOutline, drawSawmill, drawPump, drawHouse, drawShop, drawPark, drawBadge, LAMP } from "../src/buildingdraw.js";
 import { ITEMS, RECIPE_ORDER } from "../src/factory.js";
 import { pickTile, pickTileRaised, tileToScreen } from "../src/iso.js";
 import { BT } from "../src/factory.js";
@@ -116,6 +116,33 @@ for (const type of [BT.SAWMILL, BT.PUMP, BT.HOUSE, BT.SHOP, BT.PARK]) {
   drawTall(h, { type, x: 0, y: 0, dir: 1, pop: 4 }, "work");
   assert.ok(h.calls.shapes > 8, "drawTall " + type);
   assert.equal(h.calls.bad, 0);
+}
+
+// уровни Mk1-Mk3: отделка, значок, этажи; больше фигур на высоких уровнях, без NaN
+{
+  for (const type of [BT.MINER, BT.SAWMILL, BT.PUMP, BT.SMELTER, BT.CONSTRUCTOR, BT.POWERPLANT, BT.HOUSE, BT.SHOP, BT.PARK]) {
+    const counts = [];
+    for (const lvl of [1, 2, 3]) {
+      for (const st of ["work", "blocked", "happy", "needboth", "noinput"]) {
+        const g = fakeG();
+        drawTall(g, { type, x: 2, y: -3, dir: 1, ore: 2, recipe: "gear", pop: 3, lvl }, st);
+        assert.equal(g.calls.bad, 0, `NaN: ${type} Mk${lvl} ${st}`);
+        if (st === "work") counts.push(g.calls.shapes);
+      }
+    }
+    assert.ok(counts[1] > counts[0] && counts[2] > counts[1], `${type}: на каждом уровне фигур больше: ${counts}`);
+  }
+  for (const lvl of [2, 3]) {
+    const g = fakeG();
+    drawBadge(g, 10, -20, lvl);
+    assert.equal(g.calls.bad, 0);
+    assert.ok(g.calls.shapes >= 2 + lvl, "значок: табличка, полоска и палочки по числу уровня");
+  }
+  // у неулучшаемых зданий уровень ничего не рисует
+  const g1 = fakeG(), g2 = fakeG();
+  drawTall(g1, { type: BT.STORAGE, x: 0, y: 0, dir: 0, lvl: 1 }, "work");
+  drawTall(g2, { type: BT.STORAGE, x: 0, y: 0, dir: 0, lvl: 3 }, "work");
+  assert.equal(g1.calls.shapes, g2.calls.shapes);
 }
 
 // выбор клетки с учётом скал: точка на поднятой вершине выбирает скалу, а не клетку позади

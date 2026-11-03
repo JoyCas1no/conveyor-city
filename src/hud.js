@@ -10,7 +10,7 @@ const ARROWS = ["↘", "↙", "↖", "↗"]; // как направления 0.
 
 // palette: [{tool, name, cost, tab}] в порядке показа; tabs: [{id, name}].
 // onRecipe(id): рецепт станка; onDeliver(id): сдача контракта.
-export function createHud({ seed, palette, tabs, onZoom, onHome, onNewMap, onTool, onRotate, onRecipe, onDeliver }) {
+export function createHud({ seed, palette, tabs, onZoom, onHome, onNewMap, onTool, onRotate, onRecipe, onDeliver, onUpgrade }) {
   const root = document.createElement("div");
   root.id = "hud";
   const tabButtons = tabs.map((t) => `<button class="tab" data-tab="${t.id}">${t.name}</button>`).join("");
@@ -36,7 +36,10 @@ export function createHud({ seed, palette, tabs, onZoom, onHome, onNewMap, onToo
       <button id="b-home" aria-label="${STR.home}">⌂</button>
     </div>
     <div id="toast" class="toast"></div>
-    <div id="recipes" class="sheet recipes" hidden><div class="sheet-title">${STR.recipes.title}</div><div class="sheet-grid" id="recipe-grid"></div></div>
+    <div id="inspect" class="sheet" hidden>
+      <div id="insp-recipes"><div class="sheet-title">${STR.recipes.title}</div><div class="sheet-grid" id="recipe-grid"></div></div>
+      <div id="insp-up" class="upbox"></div>
+    </div>
     <div id="palette" class="sheet" hidden><div class="tabs">${tabButtons}</div><div class="sheet-grid pal-grid">${paletteButtons}</div></div>
     <div id="city" class="sheet citysheet" hidden>
       <div class="cityhead"><b>🏙 ${STR.cityWindow.title}</b><button id="city-close" class="closebtn" aria-label="${STR.cityWindow.close}">✕</button></div>
@@ -52,7 +55,7 @@ export function createHud({ seed, palette, tabs, onZoom, onHome, onNewMap, onToo
     </div>`;
   document.body.appendChild(root);
   const q = (id) => root.querySelector(id);
-  const sheets = { palette: q("#palette"), recipes: q("#recipes"), city: q("#city") };
+  const sheets = { palette: q("#palette"), recipes: q("#inspect"), city: q("#city") }; // «recipes» это панель здания (рецепт и улучшение)
   const tabOf = Object.fromEntries(palette.map((p) => [p.tool, p.tab]));
   let cityOpen = false;
 
@@ -144,18 +147,38 @@ export function createHud({ seed, palette, tabs, onZoom, onHome, onNewMap, onToo
     closeSheets,
     closePalette: closeSheets, // касание карты закрывает палитру и окно «Город»
     isCityOpen: () => cityOpen,
-    // Панель выбора рецепта станка: list [{id, name, desc}], current id.
-    showRecipes(list, current) {
-      const grid = q("#recipe-grid");
-      grid.innerHTML = list
-        .map((r) => `<button class="pal rec${r.id === current ? " on" : ""}" data-id="${r.id}"><span class="nm">${r.name}</span><span class="cost">${r.desc}</span></button>`)
-        .join("");
-      for (const b of grid.querySelectorAll("button")) b.onclick = () => onRecipe(b.dataset.id);
+    // Панель здания: рецепты станка (recipes: [{id, name, desc}] или null) и улучшение
+    // (upgrade: {now, maxed} или {now, level, effect, cost, ok, why}; null для неулучшаемых).
+    showBuilding({ recipes, current, upgrade }) {
+      q("#insp-recipes").hidden = !recipes;
+      if (recipes) {
+        const grid = q("#recipe-grid");
+        grid.innerHTML = recipes
+          .map((r) => `<button class="pal rec${r.id === current ? " on" : ""}" data-id="${r.id}"><span class="nm">${r.name}</span><span class="cost">${r.desc}</span></button>`)
+          .join("");
+        for (const b of grid.querySelectorAll("button")) b.onclick = () => onRecipe(b.dataset.id);
+      }
+      const box = q("#insp-up");
+      if (!upgrade) box.innerHTML = "";
+      else {
+        const U = STR.upgrade;
+        let html = `<div class="uptitle"><b>${upgrade.now}</b></div>`;
+        if (upgrade.maxed) html += `<div class="small dim">${U.maxed}</div>`;
+        else {
+          html += `<div class="upfx">Mk${upgrade.level}: ${upgrade.effect}</div><div class="small dim">${upgrade.cost}</div>`;
+          html += `<button class="upbtn" ${upgrade.ok ? "" : "disabled"}>${U.button} Mk${upgrade.level}</button>`;
+          if (upgrade.why) html += `<div class="upwhy">${upgrade.why}</div>`;
+        }
+        box.innerHTML = html;
+        const btn = box.querySelector(".upbtn");
+        if (btn) btn.onclick = () => onUpgrade();
+      }
       openSheet("recipes");
     },
     hideRecipes() {
       if (!sheets.recipes.hidden) closeSheets();
     },
+    isInspectOpen: () => !sheets.recipes.hidden,
     // Окно «Город»: stats {pop, houses, happy, tax, coins, shops, parks}; contracts [{id, title, coins, unlock, progress, ready}].
     setCity(stats, contracts) {
       const C = STR.cityWindow;
