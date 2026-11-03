@@ -10,7 +10,7 @@ const run = (f, seconds) => {
 // Ставит здание в обход canPlace: логику перевозки проверяем независимо от рельефа.
 const force = (f, type, x, y, dir = 0, ore = 1) => {
   const old = f.get(x, y);
-  if (old && (old.item || old.out)) f.lost++; // затёртый предмет считаем потерянным, как при сносе
+  if (old) f._giveBack(old); // затёртое здание возвращает содержимое на склад, как при сносе
   const b = f._make(type, x, y, dir);
   if (type === BT.MINER) b.ore = ore;
   f.map.set(x + "," + y, b);
@@ -60,6 +60,7 @@ const force = (f, type, x, y, dir = 0, ore = 1) => {
   assert.ok(a.ok, "учёт предметов: " + JSON.stringify(a));
   assert.ok(f.stock.iron_ore >= 7 && f.stock.iron_ore <= 9, `за 20 с ожидаем 7-9 руды, а на складе ${f.stock.iron_ore}`);
   assert.equal(a.lost, 0);
+  assert.equal(f.audit().inMachines + f.audit().onBelts + f.audit().stock, f.produced, "всё добытое на месте");
 }
 
 // ---- тупик: лента забивается, бур стоит с полным буфером ----
@@ -71,7 +72,7 @@ const force = (f, type, x, y, dir = 0, ore = 1) => {
   const a = f.audit();
   assert.ok(a.ok);
   assert.equal(a.onBelts, 5, "все 5 клеток заняты");
-  assert.equal(a.inMiners, 1);
+  assert.equal(a.inMachines, 1);
   assert.equal(m.blocked, true);
   const produced = f.produced;
   run(f, 10);
@@ -147,9 +148,11 @@ const force = (f, type, x, y, dir = 0, ore = 1) => {
   force(f, BT.STORAGE, 7, 0);
   run(f, 12);
   const onBefore = f.audit().onBelts;
+  const stockBefore = f.audit().stock;
   for (let i = 1; i <= 6; i++) f.remove(i, 0);
   assert.ok(f.audit().ok);
-  assert.equal(f.lost, onBefore, "снесённые предметы попали в потери");
+  assert.equal(f.audit().stock, stockBefore + onBefore, "снесённые предметы вернулись на склад");
+  assert.equal(f.audit().onBelts, 0);
   run(f, 5);
   assert.ok(f.audit().ok);
 }
