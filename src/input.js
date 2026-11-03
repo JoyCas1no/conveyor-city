@@ -1,0 +1,110 @@
+// Ввод: мышь, касания, колёсико, клавиатура. Только Pointer Events, один код для ПК, телефона и планшета.
+import { panBy, zoomAt } from "./camera.js";
+
+const TAP_SLOP = 8; // px: сдвиг меньше этого считается касанием, а не перетаскиванием
+
+export function attachInput(el, cam, { size, onChange, onTap, onHover }) {
+  const pts = new Map();
+  let travelled = 0;
+  let wasPinch = false;
+  const keys = new Set();
+
+  const pos = (e) => {
+    const r = el.getBoundingClientRect();
+    return { x: e.clientX - r.left, y: e.clientY - r.top };
+  };
+  const dist = () => {
+    const [a, b] = [...pts.values()];
+    return Math.hypot(a.x - b.x, a.y - b.y);
+  };
+  const mid = () => {
+    const [a, b] = [...pts.values()];
+    return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+  };
+
+  el.addEventListener("pointerdown", (e) => {
+    pts.set(e.pointerId, pos(e));
+    try {
+      el.setPointerCapture(e.pointerId);
+    } catch {
+      // захват не обязателен: без него касание всё равно работает, пока палец над полем
+    }
+    if (pts.size === 1) {
+      travelled = 0;
+      wasPinch = false;
+    } else wasPinch = true;
+  });
+
+  el.addEventListener("pointermove", (e) => {
+    const p = pos(e);
+    if (!pts.has(e.pointerId)) {
+      if (e.pointerType === "mouse") onHover?.(p.x, p.y);
+      return;
+    }
+    const prev = pts.get(e.pointerId);
+    if (pts.size === 1) {
+      travelled += Math.hypot(p.x - prev.x, p.y - prev.y);
+      if (travelled > TAP_SLOP) {
+        panBy(cam, p.x - prev.x, p.y - prev.y);
+        onChange();
+      }
+      pts.set(e.pointerId, p);
+    } else if (pts.size === 2) {
+      const d0 = dist();
+      const m0 = mid();
+      pts.set(e.pointerId, p);
+      const d1 = dist();
+      const m1 = mid();
+      const { w, h } = size();
+      if (d0 > 0) zoomAt(cam, d1 / d0, m1.x, m1.y, w, h);
+      panBy(cam, m1.x - m0.x, m1.y - m0.y);
+      onChange();
+    }
+  });
+
+  const end = (e) => {
+    if (!pts.has(e.pointerId)) return;
+    const p = pos(e);
+    const wasOnly = pts.size === 1;
+    pts.delete(e.pointerId);
+    if (wasOnly && !wasPinch && travelled <= TAP_SLOP && e.type === "pointerup") onTap?.(p.x, p.y);
+    if (pts.size === 1) travelled = TAP_SLOP + 1; // после щипка остаток пальца не должен считаться касанием
+  };
+  el.addEventListener("pointerup", end);
+  el.addEventListener("pointercancel", end);
+  el.addEventListener("contextmenu", (e) => e.preventDefault());
+
+  el.addEventListener(
+    "wheel",
+    (e) => {
+      e.preventDefault();
+      const p = pos(e);
+      const px = e.deltaMode === 1 ? e.deltaY * 33 : e.deltaY;
+      const { w, h } = size();
+      zoomAt(cam, Math.exp(-px * 0.0015), p.x, p.y, w, h);
+      onChange();
+    },
+    { passive: false }
+  );
+
+  window.addEventListener("keydown", (e) => keys.add(e.key.toLowerCase()));
+  window.addEventListener("keyup", (e) => keys.delete(e.key.toLowerCase()));
+  window.addEventListener("blur", () => keys.clear());
+
+  // Вызывать каждый кадр: движение клавишами WASD/стрелки, масштаб +/-.
+  return function applyKeys(dtMs) {
+    if (!keys.size) return;
+    const step = 0.9 * dtMs;
+    let dx = 0;
+    let dy = 0;
+    if (keys.has("a") || keys.has("arrowleft") || keys.has("ф")) dx += step;
+    if (keys.has("d") || keys.has("arrowright") || keys.has("в")) dx -= step;
+    if (keys.has("w") || keys.has("arrowup") || keys.has("ц")) dy += step;
+    if (keys.has("s") || keys.has("arrowdown") || keys.has("ы")) dy -= step;
+    const { w, h } = size();
+    if (keys.has("=") || keys.has("+")) zoomAt(cam, 1 + dtMs * 0.002, w / 2, h / 2, w, h);
+    if (keys.has("-") || keys.has("_")) zoomAt(cam, 1 - dtMs * 0.002, w / 2, h / 2, w, h);
+    if (dx || dy) panBy(cam, dx, dy);
+    onChange();
+  };
+}

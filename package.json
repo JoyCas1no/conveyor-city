@@ -1,0 +1,19 @@
+{
+  "name": "conveyor-city",
+  "version": "1.0.0",
+  "description": "Конвейер Сити: браузерный симулятор заводов и города",
+  "main": "game.js",
+  "scripts": {
+    "build": "node tools/build.mjs",
+    "check": "node tools/check.mjs",
+    "serve": "python -m http.server 8765"
+  },
+  "type": "module",
+  "dependencies": {
+    "pixi.js": "8.9.2"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  },
+  "private": true
+}
