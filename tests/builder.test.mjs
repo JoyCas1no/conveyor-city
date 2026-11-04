@@ -149,4 +149,21 @@ const fresh = () => {
   assert.equal(b.tool, "storage");
 }
 
+// подключение сбоку: лента рядом с идущей прямо лентой сама поворачивает к ней
+{
+  const { f, b } = fresh();
+  f.place(BT.BELT, 4, 0, 0);
+  f.place(BT.BELT, 5, 0, 0);
+  b.setTool("belt");
+  assert.equal(b.autoBeltDir(5, 1), 3, "снизу от ленты (5,0): смотрит вверх, в неё");
+  assert.equal(b.preview(5, 1).dir, 3, "подсказка показывает уже повёрнутую ленту");
+  b.begin(5, 1);
+  b.end();
+  assert.equal(f.get(5, 1).dir, 3, "поставленная лента повернулась к соседней");
+  assert.equal(b.autoBeltDir(3, 0), 0, "перед началом ленты: смотрит на неё");
+  f.place(BT.BELT, 3, 1, 3);
+  assert.equal(b.autoBeltDir(3, 0), null, "а если в клетку упирается питающая лента, поворот остаётся ручным");
+  assert.equal(b.autoBeltDir(10, 10), null, "рядом никого: ручной поворот");
+}
+
 console.log("builder.test: проверки пройдены");

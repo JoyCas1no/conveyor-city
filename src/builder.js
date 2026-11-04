@@ -1,7 +1,7 @@
 // Контроллер стройки: выбранный инструмент, поворот и «штрих» (проведение пальцем или мышью по клеткам).
 // Штрих ленивый: первая клетка ставится только когда палец дошёл до второй клетки или отпущен без второго пальца.
 // Так щипок двумя пальцами (первый палец успел коснуться карты раньше второго) ничего не строит.
-import { BT, dirIndex } from "./factory.js";
+import { BT, DIRS, dirIndex } from "./factory.js";
 
 export const BUILD_TOOLS = ["miner", "sawmill", "pump", "belt", "storage", "splitter", "smelter", "constructor", "pole", "powerplant", "solar", "house", "shop", "park"];
 export const TOOLS = ["hand", ...BUILD_TOOLS, "erase"];
@@ -29,13 +29,28 @@ export class Builder {
     this.rot = (this.rot + step + 4) % 4;
   }
 
+  // Направление новой ленты по соседям: если в клетку никто не упирается, а рядом есть одна лента, лента сама поворачивает к ней
+  // (подключение сбоку к идущей прямо ленте). Иначе null: берётся ручной поворот.
+  autoBeltDir(x, y) {
+    const targets = [];
+    for (let d = 0; d < 4; d++) {
+      const n = this.f.get(x + DIRS[d][0], y + DIRS[d][1]);
+      if (!n || (n.type !== BT.BELT && n.type !== BT.MINER)) continue;
+      const feeds = n.x + DIRS[n.dir][0] === x && n.y + DIRS[n.dir][1] === y;
+      if (feeds) return null; // уже есть питающая лента: направление выбирает игрок
+      if (n.type === BT.BELT) targets.push(d);
+    }
+    return targets.length === 1 ? targets[0] : null;
+  }
+
   // Можно ли здесь поставить текущей постройкой (для подсветки): {ok, reason, type, dir} или null для «руки».
   preview(x, y) {
     if (!this.active) return null;
     if (this.tool === "erase") return { ok: !!this.f.get(x, y), reason: "", type: "erase", dir: 0 };
     const type = TOOL_TYPE[this.tool];
     const r = this.f.canPlace(type, x, y);
-    return { ok: r.ok, reason: r.reason, missing: r.missing, type, dir: this.rot };
+    const auto = type === BT.BELT ? this.autoBeltDir(x, y) : null;
+    return { ok: r.ok, reason: r.reason, missing: r.missing, type, dir: auto ?? this.rot };
   }
 
   begin(x, y) {
@@ -73,7 +88,8 @@ export class Builder {
     s.started = true;
     const { x, y } = s.pending;
     if (this.tool === "erase") return this.f.remove(x, y) ? 1 : 0;
-    return this.f.place(TOOL_TYPE[this.tool], x, y, this.rot) ? 1 : 0;
+    const auto = this.tool === "belt" ? this.autoBeltDir(x, y) : null;
+    return this.f.place(TOOL_TYPE[this.tool], x, y, auto ?? this.rot) ? 1 : 0;
   }
 
   _walk(tx, ty) {
