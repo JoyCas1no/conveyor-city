@@ -25,8 +25,8 @@ export class Builder {
     this.stroke = null;
   }
 
-  rotate() {
-    this.rot = (this.rot + 1) % 4;
+  rotate(step = 1) {
+    this.rot = (this.rot + step + 4) % 4;
   }
 
   // Можно ли здесь поставить текущей постройкой (для подсветки): {ok, reason, type, dir} или null для «руки».

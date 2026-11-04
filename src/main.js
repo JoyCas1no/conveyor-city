@@ -356,14 +356,14 @@ async function start() {
     hud.setTile(STR.toolHint[builder.tool]);
     redrawMark();
   }
-  function rotate() {
+  function rotate(step = 1) {
     if (builder.active) {
-      builder.rotate();
+      builder.rotate(step);
       hud.setRot(builder.rot);
     } else if (selected) {
       const b = factory.get(selected.x, selected.y);
       if (b && !FIXED.has(b.type)) {
-        factory.rotateAt(b.x, b.y, (b.dir + 1) % 4);
+        factory.rotateAt(b.x, b.y, (b.dir + step + 4) % 4);
         hud.setTile(tileText(selected.x, selected.y));
       }
     }
@@ -375,7 +375,7 @@ async function start() {
     if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
     const map = { Digit1: "miner", Digit2: "belt", Digit3: "storage", Digit4: "erase", Digit5: "smelter", Digit6: "constructor", Digit7: "splitter", Digit8: "pole", Digit9: "powerplant", Digit0: "solar", KeyX: "erase" };
     if (map[e.code]) setTool(builder.tool === map[e.code] ? "hand" : map[e.code]);
-    else if (e.code === "KeyR") rotate();
+    else if (e.code === "KeyR") rotate(e.shiftKey ? -1 : 1);
     else if (e.code === "KeyU") doUpgrade();
     else if (e.code === "Escape") setTool("hand");
   });
@@ -383,6 +383,14 @@ async function start() {
   const applyKeys = attachInput(app.canvas, cam, {
     size,
     onChange: () => (dirty = true),
+    onRightTap: (sx, sy) => {
+      // правая кнопка: повернуть то, что строим, или здание под курсором
+      if (!builder.active) {
+        selected = pick(sx, sy);
+        showRecipePanel();
+      }
+      rotate();
+    },
     onTap: (sx, sy) => {
       selected = pick(sx, sy);
       hud.setTile(tileText(selected.x, selected.y));

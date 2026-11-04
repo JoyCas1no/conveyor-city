@@ -5,7 +5,7 @@ import { panBy, zoomAt } from "./camera.js";
 
 const TAP_SLOP = 8; // px: сдвиг меньше этого считается касанием, а не перетаскиванием
 
-export function attachInput(el, cam, { size, onChange, onTap, onHover, build }) {
+export function attachInput(el, cam, { size, onChange, onTap, onRightTap, onHover, build }) {
   const pts = new Map();
   let gesture = null; // "pan" | "build" | "pinch"
   let travelled = 0;
@@ -90,6 +90,7 @@ export function attachInput(el, cam, { size, onChange, onTap, onHover, build }) 
     }
     if (wasOnly) {
       if (gesture === "pan" && downButton === 0 && travelled <= TAP_SLOP && e.type === "pointerup") onTap?.(p.x, p.y);
+      else if (gesture === "pan" && downButton === 2 && travelled <= TAP_SLOP && e.type === "pointerup") onRightTap?.(p.x, p.y);
       gesture = null;
     } else if (pts.size === 1) {
       gesture = "pan"; // остался один палец после щипка: он двигает карту, но не строит
