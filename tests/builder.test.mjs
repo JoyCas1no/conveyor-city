@@ -65,16 +65,48 @@ const fresh = () => {
   for (const [x, y] of [[3, 0], [3, 1], [3, 2]]) assert.equal(f.get(x, y).dir, 1, `лента (${x},${y}) смотрит вдоль y`);
 }
 
-// возврат по уже пройденным клеткам штриха ничего не меняет
+// лента при протяжке только намечается (план), ставится при отпускании; возврат назад убирает лишнее из плана
 {
   const { f, b } = fresh();
   b.setTool("belt");
   b.begin(0, 0);
+  b.move(3, 0);
+  assert.equal(f.count, 0, "пока палец не отпущен, ничего не поставлено");
+  assert.equal(b.plan.length, 4);
+  b.move(1, 0);
+  assert.equal(b.plan.length, 2, "вернулись назад: лишние клетки ушли из плана");
+  assert.equal(b.plan[1].d, 0);
+  b.end();
+  assert.equal(f.count, 2);
+  assert.deepEqual([0, 1].map((x) => f.get(x, 0).dir), [0, 0]);
+  assert.equal(b.plan.length, 0);
+}
+
+// отмена: возвращает прежнее состояние тронутых клеток и деньги
+{
+  const { f, b } = fresh();
+  const stock0 = JSON.stringify(f.stock);
+  b.setTool("belt");
+  b.begin(0, 0);
+  b.move(3, 0);
+  b.end();
+  assert.equal(f.count, 4);
+  assert.equal(b.canUndo, true);
+  b.undo();
+  assert.equal(f.count, 0, "протяжка отменена целиком");
+  assert.equal(JSON.stringify(f.stock), stock0, "ресурсы вернулись");
+  assert.equal(b.canUndo, false);
+  // снос тоже отменяется
+  b.setTool("belt");
+  b.begin(0, 0);
   b.move(2, 0);
-  const dirs = [0, 1, 2].map((x) => f.get(x, 0).dir);
-  assert.equal(b.move(0, 0), 0);
-  assert.deepEqual([0, 1, 2].map((x) => f.get(x, 0).dir), dirs);
-  assert.equal(f.count, 3);
+  b.end();
+  b.setTool("erase");
+  b.begin(1, 0);
+  b.end();
+  assert.equal(f.get(1, 0), null);
+  b.undo();
+  assert.ok(f.get(1, 0) && f.get(1, 0).dir === 0, "снесённая лента вернулась с тем же направлением");
 }
 
 // препятствие на пути: штрих не падает и останавливается перед ним

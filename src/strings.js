@@ -28,7 +28,8 @@ export const STR = {
   seed: "Карта №",
   stock: "Склад",
   stockEmpty: "Склад пуст: постройте бур на руде, конвейер и склад",
-  tools: { hand: "Рука", build: "Постройки", erase: "Снести", rotate: "Повернуть", miner: "Бур", belt: "Конвейер", storage: "Склад", smelter: "Плавильня", constructor: "Станок", splitter: "Разветвитель", pole: "Столб", powerplant: "Электростанция", solar: "Солнечная панель", sawmill: "Лесопилка", pump: "Насос", house: "Дом", shop: "Магазин", park: "Парк" },
+  undone: "Последнее действие отменено",
+  tools: { hand: "Рука", build: "Постройки", erase: "Снести", rotate: "Повернуть", undo: "Отменить", miner: "Бур", belt: "Конвейер", storage: "Склад", smelter: "Плавильня", constructor: "Станок", splitter: "Разветвитель", pole: "Столб", powerplant: "Электростанция", solar: "Солнечная панель", sawmill: "Лесопилка", pump: "Насос", house: "Дом", shop: "Магазин", park: "Парк" },
   free: "бесплатно",
   toolHint: {
     hand: "Рука: тащите карту, коснитесь клетки, чтобы узнать, что на ней",

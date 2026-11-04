@@ -10,7 +10,7 @@ const ARROWS = ["↘", "↙", "↖", "↗"]; // как направления 0.
 
 // palette: [{tool, name, cost, tab}] в порядке показа; tabs: [{id, name}].
 // onRecipe(id): рецепт станка; onDeliver(id): сдача контракта.
-export function createHud({ seed, palette, tabs, onZoom, onHome, onNewMap, onTool, onRotate, onRecipe, onDeliver, onUpgrade, onMenuOpen, onOpenMap, onDeleteMap, onExport, onImport, onUpdate }) {
+export function createHud({ seed, palette, tabs, onZoom, onHome, onNewMap, onTool, onRotate, onUndo, onRecipe, onDeliver, onUpgrade, onMenuOpen, onOpenMap, onDeleteMap, onExport, onImport, onUpdate }) {
   const root = document.createElement("div");
   root.id = "hud";
   const tabButtons = tabs.map((t) => `<button class="tab" data-tab="${t.id}">${t.name}</button>`).join("");
@@ -65,6 +65,7 @@ export function createHud({ seed, palette, tabs, onZoom, onHome, onNewMap, onToo
       <button class="tool" id="b-build" aria-label="${STR.tools.build}"><span class="ico" id="build-ico">${ICONS.build}</span><span class="lbl" id="build-lbl">${STR.tools.build}</span></button>
       <button class="tool" data-tool="erase" aria-label="${STR.tools.erase}"><span class="ico">${ICONS.erase}</span><span class="lbl">${STR.tools.erase}</span></button>
       <button id="b-rot" class="tool rot" aria-label="${STR.tools.rotate}"><span class="ico" id="rot-ico">↘</span><span class="lbl">${STR.tools.rotate}</span></button>
+      <button id="b-undo" class="tool" aria-label="${STR.tools.undo}" disabled><span class="ico">↶</span><span class="lbl">${STR.tools.undo}</span></button>
     </div>`;
   document.body.appendChild(root);
   const q = (id) => root.querySelector(id);
@@ -108,6 +109,7 @@ export function createHud({ seed, palette, tabs, onZoom, onHome, onNewMap, onToo
     if (f) onImport(f);
   };
   q("#b-rot").onclick = () => onRotate();
+  q("#b-undo").onclick = () => onUndo();
   q("#b-build").onclick = () => openSheet(sheets.palette.hidden ? "palette" : null);
   q("#b-city").onclick = () => openSheet(sheets.city.hidden ? "city" : null);
   q("#city-close").onclick = () => closeSheets();
@@ -163,6 +165,10 @@ export function createHud({ seed, palette, tabs, onZoom, onHome, onNewMap, onToo
       q("#build-ico").textContent = isBuild ? ICONS[tool] : ICONS.build;
       q("#build-lbl").textContent = isBuild ? STR.tools[tool] : STR.tools.build;
       if (isBuild) showTab(tabOf[tool]);
+    },
+    setUndo: (on) => {
+      q("#b-undo").disabled = !on;
+      q("#b-undo").style.opacity = on ? "1" : "0.4";
     },
     setRot: (dir) => (q("#rot-ico").textContent = ARROWS[dir]),
     // Серые кнопки палитры: text = «Не хватает: ...» / «Откроется после контракта ...» или пусто.

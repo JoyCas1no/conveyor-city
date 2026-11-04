@@ -1,7 +1,7 @@
 // Сервис-воркер: офлайн-режим. Это шаблон: сборка (tools/build.mjs) подставляет хэш игры и список адресов для кэша.
 // Стратегия: сначала память (кэш этой версии), потом сеть. Новая версия ставится в фоне и ждёт, пока игрок нажмёт «Обновить».
-const CACHE = "cc-22fbc9e3";
-const ASSETS = ["./","./index.html","./game.22fbc9e3.js","./manifest.webmanifest","./icon-192.png","./icon-512.png","./icon-512-maskable.png","./apple-touch-icon.png"];
+const CACHE = "cc-c9dd9ef8";
+const ASSETS = ["./","./index.html","./game.c9dd9ef8.js","./manifest.webmanifest","./icon-192.png","./icon-512.png","./icon-512-maskable.png","./apple-touch-icon.png"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(

@@ -171,6 +171,7 @@ async function start() {
           if (p.ok) drawGhost(mark, ghost.x, ghost.y, false, 0, false);
         } else drawGhost(mark, ghost.x, ghost.y, p.ok, p.dir, !FIXED.has(p.type));
       }
+      for (const e of builder.plan) drawGhost(mark, e.x, e.y, true, e.d, true); // протянутая, ещё не поставленная лента
     } else if (hover) outline(hover, 0xffffff, 0.55);
     // Круг столба и подсветка зданий, которые он подключит (при выборе столба и при касании поставленного столба).
     const poleAt = builder.tool === "pole" && ghost ? ghost : selected && factory.get(selected.x, selected.y)?.type === BT.POLE && !builder.active ? selected : null;
@@ -277,6 +278,7 @@ async function start() {
     },
     onTool: (t) => setTool(builder.tool === t && t !== "hand" ? "hand" : t),
     onRotate: () => rotate(),
+    onUndo: () => undo(),
   });
 
   // ---- меню и офлайн-режим ----
@@ -356,6 +358,15 @@ async function start() {
     hud.setTile(STR.toolHint[builder.tool]);
     redrawMark();
   }
+  function undo() {
+    if (!builder.undo()) return;
+    hud.toast(STR.undone);
+    hud.setUndo(builder.canUndo);
+    if (selected) hud.setTile(tileText(selected.x, selected.y));
+    showRecipePanel();
+    refreshCity();
+    redrawMark();
+  }
   function rotate(step = 1) {
     if (builder.active) {
       builder.rotate(step);
@@ -372,9 +383,11 @@ async function start() {
   hud.setTool("hand");
 
   window.addEventListener("keydown", (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.code === "KeyZ") return void undo();
     if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return;
     const map = { Digit1: "miner", Digit2: "belt", Digit3: "storage", Digit4: "erase", Digit5: "smelter", Digit6: "constructor", Digit7: "splitter", Digit8: "pole", Digit9: "powerplant", Digit0: "solar", KeyX: "erase" };
     if (map[e.code]) setTool(builder.tool === map[e.code] ? "hand" : map[e.code]);
+    else if (e.code === "KeyZ") undo();
     else if (e.code === "KeyR") rotate(e.shiftKey ? -1 : 1);
     else if (e.code === "KeyU") doUpgrade();
     else if (e.code === "Escape") setTool("hand");
@@ -430,6 +443,7 @@ async function start() {
         const n = builder.end();
         if (n === 0 && p && !p.ok && p.reason) hud.toast(p.reason === "cost" ? missingText(p.missing) : p.reason === "locked" ? lockText(builder.tool) : STR.reason[p.reason], true);
         ghost = null;
+        hud.setUndo(builder.canUndo);
         redrawMark();
       },
       cancel: () => {

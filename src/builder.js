@@ -7,11 +7,16 @@ export const BUILD_TOOLS = ["miner", "sawmill", "pump", "belt", "storage", "spli
 export const TOOLS = ["hand", ...BUILD_TOOLS, "erase"];
 const TOOL_TYPE = { miner: BT.MINER, belt: BT.BELT, storage: BT.STORAGE, smelter: BT.SMELTER, constructor: BT.CONSTRUCTOR, splitter: BT.SPLITTER, pole: BT.POLE, powerplant: BT.POWERPLANT, solar: BT.SOLAR, sawmill: BT.SAWMILL, pump: BT.PUMP, house: BT.HOUSE, shop: BT.SHOP, park: BT.PARK };
 
+const HISTORY = 20;
+
 export class Builder {
   constructor(factory) {
     this.f = factory;
     this.tool = "hand";
     this.rot = 0;
+    this.plan = []; // лента, протянутая пальцем: показана, но ещё не поставлена
+    this.history = [];
+    this.cur = null;
     this.stroke = null;
   }
 
@@ -53,9 +58,48 @@ export class Builder {
     return { ok: r.ok, reason: r.reason, missing: r.missing, type, dir: auto ?? this.rot };
   }
 
+  // ---- отмена: каждое действие (касание или штрих) запоминает, что стояло в тронутых клетках ----
+  _note(x, y) {
+    if (!this.cur) return;
+    const k = x + "," + y;
+    if (this.cur.tiles.has(k)) return;
+    const b = this.f.get(x, y);
+    if (b && b.lvl > 1) this.cur.locked = true; // улучшенное здание цену не вернёт точно: дальше назад не отменяем
+    this.cur.tiles.set(k, { x, y, was: b ? { type: b.type, dir: b.dir, recipe: b.recipe ?? null, lvl: b.lvl ?? 1 } : null });
+  }
+
+  _finish() {
+    const c = this.cur;
+    this.cur = null;
+    if (!c || c.tiles.size === 0) return;
+    if (c.locked) this.history.length = 0;
+    else this.history.push([...c.tiles.values()]);
+    if (this.history.length > HISTORY) this.history.shift();
+  }
+
+  get canUndo() {
+    return this.history.length > 0;
+  }
+
+  // Откатывает последнее действие. Возвращает число восстановленных клеток.
+  undo() {
+    const tiles = this.history.pop();
+    if (!tiles) return 0;
+    for (const t of tiles) if (this.f.get(t.x, t.y)) this.f.remove(t.x, t.y);
+    for (const t of tiles) {
+      if (!t.was) continue;
+      const b = this.f.place(t.was.type, t.x, t.y, t.was.dir);
+      if (b && t.was.recipe) this.f.setRecipe(t.x, t.y, t.was.recipe);
+    }
+    return tiles.length;
+  }
+
+  // ---- штрих ----
   begin(x, y) {
     if (!this.active) return false;
     this.stroke = { pending: { x, y }, started: false, last: { x, y }, visited: new Set([x + "," + y]) };
+    this.plan = [];
+    this.cur = { tiles: new Map(), locked: false };
     return true;
   }
 
@@ -65,37 +109,62 @@ export class Builder {
     let changed = 0;
     if (!s.started) {
       if (x === s.last.x && y === s.last.y) return 0;
-      changed += this._commitFirst();
+      changed += this._commitFirst(true);
     }
     return changed + this._walk(x, y);
   }
 
+  // Конец штриха. Лента, протянутая пальцем, до этого момента только показана (this.plan): ставится сейчас.
   end() {
     const s = this.stroke;
     if (!s) return 0;
-    const n = s.started ? 0 : this._commitFirst();
+    let n = 0;
+    if (this.tool === "belt" && s.started) n = this._commitPlan();
+    else if (!s.started) n = this._commitFirst(false);
     this.stroke = null;
+    this.plan = [];
+    this._finish();
     return n;
   }
 
   // Второй палец коснулся карты: начатый штрих отменяется, ничего не поставлено.
   cancel() {
     this.stroke = null;
+    this.plan = [];
+    this._finish();
   }
 
-  _commitFirst() {
+  _commitFirst(dragging) {
     const s = this.stroke;
     s.started = true;
     const { x, y } = s.pending;
+    if (this.tool === "belt") {
+      // одиночное касание ставит сразу; при протяжке клетка входит в план и ставится вместе со всеми
+      if (this.f.canPlace(BT.BELT, x, y).ok) this.plan.push({ x, y, d: this.autoBeltDir(x, y) ?? this.rot, din: this.rot });
+      if (!dragging) return this._commitPlan();
+      return 0;
+    }
+    this._note(x, y);
     if (this.tool === "erase") return this.f.remove(x, y) ? 1 : 0;
-    const auto = this.tool === "belt" ? this.autoBeltDir(x, y) : null;
-    return this.f.place(TOOL_TYPE[this.tool], x, y, auto ?? this.rot) ? 1 : 0;
+    return this.f.place(TOOL_TYPE[this.tool], x, y, this.rot) ? 1 : 0;
+  }
+
+  _commitPlan() {
+    let n = 0;
+    for (const e of this.plan) {
+      this._note(e.x, e.y);
+      if (!this.f.place(BT.BELT, e.x, e.y, e.d)) break; // не хватило ресурсов: остальное не ставим
+      n++;
+    }
+    this.plan = [];
+    return n;
   }
 
   _walk(tx, ty) {
     const s = this.stroke;
     let changed = 0;
     for (let guard = 0; guard < 200 && (s.last.x !== tx || s.last.y !== ty); guard++) {
+      if (this.tool === "belt" && this._retreat(tx, ty)) continue;
       const dx = tx - s.last.x;
       const dy = ty - s.last.y;
       const sx = Math.sign(dx);
@@ -116,13 +185,17 @@ export class Builder {
         if (this.tool === "belt") {
           if (!this.f.canPlace(BT.BELT, nx, ny).ok) continue;
           const d = dirIndex(cx, cy);
-          const prev = this.f.get(s.last.x, s.last.y);
-          if (prev && prev.type === BT.BELT) this.f.place(BT.BELT, s.last.x, s.last.y, d); // предыдущая лента поворачивает к новой
-          this.f.place(BT.BELT, nx, ny, d);
+          const tail = this.plan[this.plan.length - 1];
+          if (tail && tail.x === s.last.x && tail.y === s.last.y) tail.d = d; // предыдущая лента поворачивает к новой
+          this.plan.push({ x: nx, y: ny, d, din: d });
           changed++;
         } else if (this.tool === "erase") {
+          this._note(nx, ny);
           if (this.f.remove(nx, ny)) changed++;
-        } else if (this.f.place(TOOL_TYPE[this.tool], nx, ny, this.rot)) changed++;
+        } else {
+          this._note(nx, ny);
+          if (this.f.place(TOOL_TYPE[this.tool], nx, ny, this.rot)) changed++;
+        }
         s.visited.add(nx + "," + ny);
         s.last = { x: nx, y: ny };
         moved = true;
@@ -131,5 +204,20 @@ export class Builder {
       if (!moved) break;
     }
     return changed;
+  }
+
+  // Палец вернулся назад по уже намеченной ленте: лишние клетки убираются из плана.
+  _retreat(tx, ty) {
+    const s = this.stroke;
+    const i = this.plan.findIndex((e) => e.x === tx && e.y === ty);
+    if (i < 0 || i >= this.plan.length - 1) return false;
+    while (this.plan.length - 1 > i) {
+      const e = this.plan.pop();
+      s.visited.delete(e.x + "," + e.y);
+    }
+    const tail = this.plan[this.plan.length - 1];
+    tail.d = tail.din;
+    s.last = { x: tail.x, y: tail.y };
+    return true;
   }
 }
